@@ -405,6 +405,8 @@ type Conversation struct {
 
 The link walker understands pointers, nested structs, slices, arrays, and maps. Paths use JSON field names and include indexes or map keys, such as `attachments.0`. A field with `json:"-"` or `link:"-"` is ignored.
 
+Call `storage.Links(obj)` to extract the links declared by an object.
+
 For links that are not represented by a tagged field, implement `storage.Linker`:
 
 ```go
@@ -614,7 +616,7 @@ The built-in validators cover required values, strings, lengths, character class
 /driver/sqlite     standalone cgo-free SQLite module
 /driver/pgsql      standalone PostgreSQL module using pgx
 /bench             standalone benchmark module
-/internal/walk     private reflection and link walker
+/internal/walk     private reflection walker
 ```
 
 `internal/walk` is an implementation detail and is not part of the public API.

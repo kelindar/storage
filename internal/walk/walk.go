@@ -5,7 +5,14 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+
+	"github.com/kelindar/storage"
 )
+
+// Links delegates link extraction to the public storage package.
+func Links(obj storage.Object) ([]storage.Link, error) {
+	return storage.Links(obj)
+}
 
 func Walk(value any, fn func(v reflect.Value, field *reflect.StructField, path []string) error) error {
 	v := reflect.ValueOf(value)
