@@ -317,7 +317,7 @@ func TestStorageGuards(t *testing.T) {
 
 		_, err = storage.New[*invalidObject]("acme", "default")
 		assert.Error(t, err)
-		_, err = storage.NewByType(reflect.TypeOf(struct{}{}), "acme", "default")
+		_, err = storage.NewByType(reflect.TypeFor[struct{}](), "acme", "default")
 		assert.Error(t, err)
 		_, err = storage.Create[*App](t.Context(), db, func(*App) error { return assert.AnError }, "acme", "default")
 		assert.ErrorIs(t, err, assert.AnError)

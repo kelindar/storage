@@ -32,7 +32,7 @@ func TestConvert(t *testing.T) {
 	if got := metaOf(value); got != &value.Meta {
 		t.Fatal("metaOf returned the wrong field")
 	}
-	if reflect.TypeOf(value).Kind() != reflect.Pointer {
+	if reflect.TypeFor[*convertRecord]().Kind() != reflect.Pointer {
 		t.Fatal("unexpected test type")
 	}
 }
