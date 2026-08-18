@@ -88,7 +88,7 @@ func TestValidatorErrors(t *testing.T) {
 	assert.False(t, valid)
 	assert.Error(t, err)
 
-	field := reflect.TypeOf(invalid{}).Field(0)
+	field := reflect.TypeFor[invalid]().Field(0)
 	assert.Equal(t, "Unknown", nameOf(&field))
 	assert.Empty(t, nameOf(nil))
 	dash := reflect.StructField{Name: "Ignored", Tag: `json:"-"`}

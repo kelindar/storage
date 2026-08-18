@@ -50,7 +50,7 @@ func TestObjectGuards(t *testing.T) {
 
 	_, err = New[*invalidResource]("acme", "my_project")
 	assert.Error(t, err)
-	_, err = NewByType(reflect.TypeOf(struct{}{}), "acme", "my_project")
+	_, err = NewByType(reflect.TypeFor[struct{}](), "acme", "my_project")
 	assert.Error(t, err)
 
 	_, err = FromJSON(newRegistry(), []byte("{"))
@@ -154,9 +154,9 @@ func TestStoreSlice(t *testing.T) {
 }
 
 func TestObjectInternals(t *testing.T) {
-	assert.False(t, scanStore(reflect.TypeOf(struct{}{})))
-	assert.False(t, scanEmbed(reflect.TypeOf(struct{}{})))
-	assert.Equal(t, reflect.TypeOf(Kind1{}), typeOf(Kind1{}))
+	assert.False(t, scanStore(reflect.TypeFor[struct{}]()))
+	assert.False(t, scanEmbed(reflect.TypeFor[struct{}]()))
+	assert.Equal(t, reflect.TypeFor[Kind1](), typeOf(Kind1{}))
 	assert.Equal(t, "a.b\\.c", joinJSONPath("a", "b.c"))
 	assert.Equal(t, "name", joinJSONPath("", "name"))
 	assert.Equal(t, "prefix", joinJSONPath("prefix", ""))
