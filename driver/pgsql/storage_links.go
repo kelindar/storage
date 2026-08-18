@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/kelindar/storage"
-	"github.com/kelindar/storage/internal/walk"
 )
 
 // Link replaces every outgoing link for source.
@@ -21,7 +20,7 @@ func (s *rds) Link(ctx context.Context, source storage.URN) error {
 	case err != nil:
 		return err
 	default:
-		links, err = walk.Links(obj)
+		links, err = storage.Links(obj)
 		if err != nil {
 			return err
 		}

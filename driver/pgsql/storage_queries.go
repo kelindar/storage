@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/kelindar/storage"
-	"github.com/kelindar/storage/internal/walk"
 )
 
 const recordColumns = "id, namespace, state, data, created_by, updated_by, created_at, updated_at, expires_at"
@@ -41,7 +40,7 @@ func (s *rds) Insert(ctx context.Context, v Record) (Record, error) {
 		}
 		return nil, fmt.Errorf("storage: unable to insert, %w", err)
 	}
-	links, err := walk.Links(v)
+	links, err := storage.Links(v)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +92,7 @@ func (s *rds) Update(ctx context.Context, v Record) (Record, error) {
 		return nil, fmt.Errorf("%w (%v)", storage.ErrConflict, urn.String())
 	}
 	createdBy, createdAt := old.Created()
-	links, err := walk.Links(v)
+	links, err := storage.Links(v)
 	if err != nil {
 		return nil, err
 	}
