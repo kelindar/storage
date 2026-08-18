@@ -1,12 +1,11 @@
-# Storage: Typed Object Storage for Go
-
 <p align="center">
     <img src="https://img.shields.io/github/go-mod/go-version/kelindar/storage" alt="Go Version">
     <a href="https://pkg.go.dev/github.com/kelindar/storage"><img src="https://pkg.go.dev/badge/github.com/kelindar/storage" alt="PkgGoDev"></a>
-    <a href="https://goreportcard.com/report/github.com/kelindar/storage"><img src="https://goreportcard.com/badge/github.com/kelindar/storage" alt="Go Report Card"></a>
     <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License"></a>
     <a href="https://coveralls.io/github/kelindar/storage"><img src="https://coveralls.io/repos/github/kelindar/storage/badge.svg" alt="Coverage"></a>
 </p>
+
+# Typed Object Storage for Go
 
 This repository contains a typed object store for Go applications. It stores resource metadata and JSON documents in a database, and provides the pieces that usually end up scattered across an application: queries, links, optimistic updates, locks, change feeds, sequences, lifecycle state, validation, and blobs.
 
