@@ -400,7 +400,7 @@ func TestStatefulStorage(t *testing.T) {
 			first, err = storage.Insert(t.Context(), db, first)
 			require.NoError(t, err)
 
-			second, err := storage.New[*App]("noeti", "my_project")
+			second, err := storage.New[*App]("other", "my_project")
 			require.NoError(t, err)
 			second.ID = first.ID
 			patched := false

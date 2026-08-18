@@ -97,14 +97,14 @@ func TestSQLite(t *testing.T) {
 			require.NoError(t, err)
 			acme.ID = "d92il9hhq4uhlo6a5ucg"
 			acme.Name = "Acme"
-			noeti, err := storage.New[*App]("noeti", "system")
+			other, err := storage.New[*App]("other", "system")
 			require.NoError(t, err)
-			noeti.ID = acme.ID
-			noeti.Name = "Noeti"
+			other.ID = acme.ID
+			other.Name = "Other"
 
 			_, err = db.Insert(t.Context(), acme)
 			require.NoError(t, err)
-			_, err = db.Insert(t.Context(), noeti)
+			_, err = db.Insert(t.Context(), other)
 			require.ErrorIs(t, err, storage.ErrConflict)
 		})
 	})

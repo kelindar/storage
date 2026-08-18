@@ -102,6 +102,17 @@ storage.Options adds application metadata when a type is registered:
 
 Actions and Workflows are metadata only. Storage does not authorize actions or execute workflows. DefaultActions is used when Actions is empty.
 
+## Actors
+
+Attach the actor performing a mutation to the context:
+
+```go
+ctx := storage.WithActor(context.Background(), "user:123")
+created, err := storage.Insert(ctx, db, document)
+```
+
+storage.Actor(ctx) returns the actor, or storage.UnknownActor when none is set. storage.SystemActor is available for system work.
+
 ## A complete example
 
 Here is a small program which creates and searches a document:
