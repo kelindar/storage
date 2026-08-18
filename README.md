@@ -595,6 +595,21 @@ ok, err := validate.Struct(&Input{
 
 The built-in validators cover required values, strings, lengths, character classes, numbers, ranges, URLs, email, IP addresses, UUIDs, hashes, dates, encodings, and common identifiers. Register another one with `validate.Register`; its negated `!name` form is registered automatically.
 
+`Create` and `Update` enforce field access declared with `form` tags:
+
+```go
+type Document struct {
+	Name    string `json:"name" form:"rw"`
+	Type    string `json:"type" form:"create"`
+	Version int    `json:"version" form:"ro"`
+}
+
+err := validate.Create(incoming)
+err = validate.Update(current, incoming)
+```
+
+`Create` rejects populated `ro` fields. `Update` rejects changes to `ro` and `create` fields while allowing omitted or unchanged values. If a read-only field is empty in `current`, `Update` clears it from `incoming`; this supports round-tripping projections that are not stored.
+
 ## Conversion helpers
 
 `github.com/kelindar/storage/convert` contains the small helpers that are useful around resource metadata and query input:
