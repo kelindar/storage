@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/kelindar/async v1.6.0
-	github.com/kelindar/storage v0.9.2-0.20260818141146-191095114f7c
+	github.com/kelindar/storage v0.9.2-0.20260818140930-0d5d7444d61f
 	github.com/ncruces/go-sqlite3 v0.35.1
 	github.com/rs/xid v1.6.0
 	github.com/stretchr/testify v1.11.1
