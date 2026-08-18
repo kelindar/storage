@@ -2,6 +2,8 @@ module github.com/kelindar/storage
 
 go 1.25.0
 
+retract [v0.1.0, v0.8.0] // occupied by the former chartmuseum/storage module
+
 require (
 	github.com/kelindar/async v1.6.0
 	github.com/klauspost/compress v1.19.0
