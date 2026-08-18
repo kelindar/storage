@@ -1,4 +1,4 @@
-package walk
+package storage
 
 import (
 	"fmt"
@@ -8,8 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-
-	"github.com/kelindar/storage"
 )
 
 type linkType struct {
@@ -20,7 +18,7 @@ type linkType struct {
 
 type linkField struct {
 	index   int
-	kind    storage.Kind
+	kind    Kind
 	name    string
 	inline  bool
 	nested  bool
@@ -28,15 +26,15 @@ type linkField struct {
 }
 
 var linkTypes sync.Map // map[reflect.Type]*linkType
-var urnType = reflect.TypeFor[storage.URN]()
+var urnType = reflect.TypeFor[URN]()
 
 // Links returns links declared by tags or by the object's Linker method.
-func Links(obj storage.Object) ([]storage.Link, error) {
+func Links(obj Object) ([]Link, error) {
 	links, err := taggedLinks(obj)
 	if err != nil {
 		return nil, err
 	}
-	if linker, ok := obj.(storage.Linker); ok {
+	if linker, ok := obj.(Linker); ok {
 		declared, err := linker.Links()
 		if err != nil {
 			return nil, err
@@ -46,13 +44,13 @@ func Links(obj storage.Object) ([]storage.Link, error) {
 	return links, nil
 }
 
-func taggedLinks(obj storage.Object) ([]storage.Link, error) {
+func taggedLinks(obj Object) ([]Link, error) {
 	info := linkInfo(reflect.TypeOf(obj))
 	if info == nil || info.count == 0 {
 		return nil, nil
 	}
 
-	out := make([]storage.Link, 0, info.count)
+	out := make([]Link, 0, info.count)
 	source := obj.URN()
 	var path [256]byte
 	if err := walkLinks(reflect.ValueOf(obj), path[:0], source, &out); err != nil {
@@ -62,7 +60,7 @@ func taggedLinks(obj storage.Object) ([]storage.Link, error) {
 	return out, nil
 }
 
-func walkLinks(v reflect.Value, path []byte, source storage.URN, out *[]storage.Link) error {
+func walkLinks(v reflect.Value, path []byte, source URN, out *[]Link) error {
 	for v.IsValid() && (v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface) {
 		if v.IsNil() {
 			return nil
@@ -84,7 +82,7 @@ func walkLinks(v reflect.Value, path []byte, source storage.URN, out *[]storage.
 	return nil
 }
 
-func walkStructLinks(v reflect.Value, path []byte, source storage.URN, out *[]storage.Link) error {
+func walkStructLinks(v reflect.Value, path []byte, source URN, out *[]Link) error {
 	info := linkInfo(v.Type())
 	for _, field := range info.fields {
 		value := v.Field(field.index)
@@ -114,14 +112,14 @@ func walkStructLinks(v reflect.Value, path []byte, source storage.URN, out *[]st
 	return nil
 }
 
-func walkNestedLinks(nested bool, value reflect.Value, path []byte, source storage.URN, out *[]storage.Link) error {
+func walkNestedLinks(nested bool, value reflect.Value, path []byte, source URN, out *[]Link) error {
 	if !nested {
 		return nil
 	}
 	return walkLinks(value, path, source, out)
 }
 
-func walkSliceLinks(v reflect.Value, path []byte, source storage.URN, out *[]storage.Link) error {
+func walkSliceLinks(v reflect.Value, path []byte, source URN, out *[]Link) error {
 	for i := 0; i < v.Len(); i++ {
 		if err := walkLinks(v.Index(i), appendIndex(path, i), source, out); err != nil {
 			return err
@@ -130,7 +128,7 @@ func walkSliceLinks(v reflect.Value, path []byte, source storage.URN, out *[]sto
 	return nil
 }
 
-func walkMapLinks(v reflect.Value, path []byte, source storage.URN, out *[]storage.Link) error {
+func walkMapLinks(v reflect.Value, path []byte, source URN, out *[]Link) error {
 	keys := v.MapKeys()
 	sort.Slice(keys, func(i, j int) bool {
 		return mapKeyString(keys[i]) < mapKeyString(keys[j])
@@ -170,7 +168,7 @@ func containsLinks(v reflect.Value) bool {
 func emptyLink(v reflect.Value) bool {
 	switch {
 	case v.Type() == urnType:
-		return readURN(v) == (storage.URN{})
+		return readURN(v) == (URN{})
 	case v.Kind() == reflect.String, v.Kind() == reflect.Array, v.Kind() == reflect.Map, v.Kind() == reflect.Slice:
 		return v.Len() == 0
 	default:
@@ -290,7 +288,7 @@ func parseField(field reflect.StructField) linkField {
 		jsonName = field.Name
 	}
 	return linkField{
-		kind:   storage.Kind(linkTag),
+		kind:   Kind(linkTag),
 		name:   jsonName,
 		inline: field.Anonymous || hasOption(options, "inline"),
 	}
@@ -309,7 +307,7 @@ func hasOption(options, want string) bool {
 	}
 }
 
-func extractValue(v reflect.Value, path []byte, source storage.URN, kind storage.Kind, out *[]storage.Link) error {
+func extractValue(v reflect.Value, path []byte, source URN, kind Kind, out *[]Link) error {
 	for v.IsValid() && (v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface) {
 		if v.IsNil() {
 			return nil
@@ -326,18 +324,18 @@ func extractValue(v reflect.Value, path []byte, source storage.URN, kind storage
 		return extractMap(v, path, source, kind, out)
 	}
 
-	var target storage.URN
+	var target URN
 	switch {
 	case v.Type() == urnType:
 		target = readURN(v)
-		if target == (storage.URN{}) {
+		if target == (URN{}) {
 			return nil
 		}
 	case v.Kind() == reflect.String:
 		if v.Len() == 0 {
 			return nil
 		}
-		parsed, err := storage.ParseURN(v.String())
+		parsed, err := ParseURN(v.String())
 		if err != nil {
 			return fmt.Errorf("storage: invalid link at %s: %w", path, err)
 		}
@@ -348,11 +346,11 @@ func extractValue(v reflect.Value, path []byte, source storage.URN, kind storage
 	if !target.IsValid() || target.Kind != kind {
 		return fmt.Errorf("storage: invalid link at %s", path)
 	}
-	*out = append(*out, storage.Use(source, target, storage.Path(string(path))))
+	*out = append(*out, Use(source, target, Path(string(path))))
 	return nil
 }
 
-func extractSlice(v reflect.Value, path []byte, source storage.URN, kind storage.Kind, out *[]storage.Link) error {
+func extractSlice(v reflect.Value, path []byte, source URN, kind Kind, out *[]Link) error {
 	for i := 0; i < v.Len(); i++ {
 		if err := extractValue(v.Index(i), appendIndex(path, i), source, kind, out); err != nil {
 			return err
@@ -361,7 +359,7 @@ func extractSlice(v reflect.Value, path []byte, source storage.URN, kind storage
 	return nil
 }
 
-func extractMap(v reflect.Value, path []byte, source storage.URN, kind storage.Kind, out *[]storage.Link) error {
+func extractMap(v reflect.Value, path []byte, source URN, kind Kind, out *[]Link) error {
 	keys := v.MapKeys()
 	sort.Slice(keys, func(i, j int) bool {
 		return mapKeyString(keys[i]) < mapKeyString(keys[j])
@@ -374,7 +372,7 @@ func extractMap(v reflect.Value, path []byte, source storage.URN, kind storage.K
 	return nil
 }
 
-func extractTagged(v reflect.Value, path []string, source storage.URN, kind storage.Kind, out *[]storage.Link) error {
+func extractTagged(v reflect.Value, path []string, source URN, kind Kind, out *[]Link) error {
 	var buf []byte
 	for _, name := range path {
 		buf = appendPath(buf, name)
@@ -433,16 +431,16 @@ func mapKeyString(key reflect.Value) string {
 	}
 }
 
-func readURN(v reflect.Value) storage.URN {
-	return storage.URN{
+func readURN(v reflect.Value) URN {
+	return URN{
 		Tenant:    v.Field(0).String(),
 		Namespace: v.Field(1).String(),
-		Kind:      storage.Kind(v.Field(2).String()),
+		Kind:      Kind(v.Field(2).String()),
 		ID:        v.Field(3).String(),
 	}
 }
 
-func compareLink(a, b storage.Link) int {
+func compareLink(a, b Link) int {
 	if a.Path != b.Path {
 		if a.Path < b.Path {
 			return -1
@@ -452,7 +450,7 @@ func compareLink(a, b storage.Link) int {
 	return compareURN(a.Target, b.Target)
 }
 
-func compareURN(a, b storage.URN) int {
+func compareURN(a, b URN) int {
 	switch {
 	case a.Tenant != b.Tenant:
 		return compareString(a.Tenant, b.Tenant)

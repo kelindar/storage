@@ -1,37 +1,36 @@
-package walk
+package storage
 
 import (
 	"errors"
 	"reflect"
 	"testing"
 
-	"github.com/kelindar/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type linkObject struct {
-	storage.Meta `json:",inline"`
-	target       storage.URN
+	Meta   `json:",inline"`
+	target URN
 }
 
 type dynamicObject struct {
-	storage.Meta `json:",inline"`
-	Value        any `json:"value"`
+	Meta  `json:",inline"`
+	Value any `json:"value"`
 }
 
 type dynamicTarget struct {
-	Target storage.URN `json:"target" link:"artifact"`
+	Target URN `json:"target" link:"artifact"`
 }
 
 type stringObject struct {
-	storage.Meta `json:",inline"`
-	Target       string `json:"target" link:"artifact"`
+	Meta   `json:",inline"`
+	Target string `json:"target" link:"artifact"`
 }
 
 type inlineObject struct {
-	storage.Meta `json:",inline"`
-	Spec         inlineSpec `json:"spec"`
+	Meta `json:",inline"`
+	Spec inlineSpec `json:"spec"`
 }
 
 type inlineSpec struct {
@@ -39,92 +38,92 @@ type inlineSpec struct {
 }
 
 type inlineConfig struct {
-	Target storage.URN `json:"target" link:"artifact"`
+	Target URN `json:"target" link:"artifact"`
 }
 
 type conversation struct {
-	storage.Meta `kind:"conversation" json:",inline"`
-	Messages     []conversationMessage `json:"messages"`
+	Meta     `kind:"conversation" json:",inline"`
+	Messages []conversationMessage `json:"messages"`
 }
 
 type conversationMessage struct {
-	Attachments []storage.URN `json:"attachments" link:"blob"`
+	Attachments []URN `json:"attachments" link:"blob"`
 }
 
 type mapObject struct {
-	storage.Meta `json:",inline"`
-	Value        map[string]dynamicTarget `json:"value"`
+	Meta  `json:",inline"`
+	Value map[string]dynamicTarget `json:"value"`
 }
 
 type invalidObject struct {
-	storage.Meta `json:",inline"`
-	Target       string `json:"target" link:"artifact"`
+	Meta   `json:",inline"`
+	Target string `json:"target" link:"artifact"`
 }
 
 type errorLinker struct {
-	storage.Meta `json:",inline"`
+	Meta `json:",inline"`
 }
 
-func (*errorLinker) Links() ([]storage.Link, error) {
+func (*errorLinker) Links() ([]Link, error) {
 	return nil, errors.New("linker failed")
 }
 
-func (o *linkObject) Links() ([]storage.Link, error) {
-	return []storage.Link{storage.Use(o.URN(), o.target, "target")}, nil
+func (o *linkObject) Links() ([]Link, error) {
+	return []Link{Use(o.URN(), o.target, "target")}, nil
 }
 
 func TestLinks(t *testing.T) {
 	source := testURN(t, "conversation", "00000000000000000000")
-	first := testURN(t, storage.KindBlob, "00000000000000000001")
-	second := testURN(t, storage.KindBlob, "00000000000000000002")
+	first := testURN(t, KindBlob, "00000000000000000001")
+	second := testURN(t, KindBlob, "00000000000000000002")
 	conversation := &conversation{
-		Meta: storage.Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID},
+		Meta: Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID},
 		Messages: []conversationMessage{
-			{Attachments: []storage.URN{first, second}},
+			{Attachments: []URN{first, second}},
 		},
 	}
 
 	links, err := Links(conversation)
 	require.NoError(t, err)
-	assert.Equal(t, []storage.Link{
-		storage.Use(source, first, "messages.0.attachments.0"),
-		storage.Use(source, second, "messages.0.attachments.1"),
+	assert.Equal(t, []Link{
+		Use(source, first, "messages.0.attachments.0"),
+		Use(source, second, "messages.0.attachments.1"),
 	}, links)
 }
 
 func TestLinksUsesLinker(t *testing.T) {
 	source := testURN(t, "app", "00000000000000000000")
 	target := testURN(t, "artifact", "00000000000000000001")
-	obj := &linkObject{Meta: storage.Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID}, target: target}
+	obj := &linkObject{Meta: Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID}, target: target}
 
 	links, err := Links(obj)
 	require.NoError(t, err)
-	assert.Equal(t, []storage.Link{storage.Use(source, target, "target")}, links)
+	assert.Equal(t, []Link{Use(source, target, "target")}, links)
 }
 
 func TestLinksUsesString(t *testing.T) {
 	source := testURN(t, "app", "00000000000000000000")
 	target := testURN(t, "artifact", "00000000000000000001")
 	obj := &stringObject{
-		Meta:   storage.Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID},
+		Meta:   Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID},
 		Target: target.String(),
 	}
 
 	links, err := Links(obj)
 	require.NoError(t, err)
-	assert.Equal(t, []storage.Link{storage.Use(source, target, "target")}, links)
+	assert.Equal(t, []Link{Use(source, target, "target")}, links)
 }
 
 func TestLinksErrors(t *testing.T) {
 	source := testURN(t, "app", "00000000000000000000")
 
 	_, err := Links(&invalidObject{
-		Meta:   storage.Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID},
+		Meta:   Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID},
 		Target: "not-a-urn",
 	})
 	assert.ErrorContains(t, err, "invalid link")
 
-	_, err = Links(&errorLinker{Meta: storage.Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID}})
+	_, err = Links(&errorLinker{Meta: Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID}})
 	assert.ErrorContains(t, err, "linker failed")
 }
 
@@ -134,31 +133,31 @@ func TestLinkInfo(t *testing.T) {
 
 	assert.Same(t, first, second)
 	require.Len(t, first.fields, 1)
-	assert.Equal(t, storage.Kind("artifact"), first.fields[0].kind)
+	assert.Equal(t, Kind("artifact"), first.fields[0].kind)
 }
 
 func TestLinksWalk(t *testing.T) {
 	source := testURN(t, "app", "00000000000000000000")
 	target := testURN(t, "artifact", "00000000000000000001")
 
-	tests := map[string]storage.Object{
+	tests := map[string]Object{
 		"dynamic": &dynamicObject{
-			Meta:  storage.Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID},
+			Meta:  Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID},
 			Value: dynamicTarget{Target: target},
 		},
 		"inline": &inlineObject{
-			Meta: storage.Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID},
+			Meta: Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID},
 			Spec: inlineSpec{Config: inlineConfig{Target: target}},
 		},
 		"map": &mapObject{
-			Meta:  storage.Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID},
+			Meta:  Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID},
 			Value: map[string]dynamicTarget{"entry": {Target: target}},
 		},
 	}
-	want := map[string][]storage.Link{
-		"dynamic": {storage.Use(source, target, "value.target")},
-		"inline":  {storage.Use(source, target, "spec.target")},
-		"map":     {storage.Use(source, target, "value.entry.target")},
+	want := map[string][]Link{
+		"dynamic": {Use(source, target, "value.target")},
+		"inline":  {Use(source, target, "spec.target")},
+		"map":     {Use(source, target, "value.entry.target")},
 	}
 
 	for name, obj := range tests {
@@ -197,17 +196,17 @@ func TestLinkHelpers(t *testing.T) {
 	})
 
 	t.Run("comparisons", func(t *testing.T) {
-		a := storage.URN{Tenant: "a", Namespace: "a", Kind: "a", ID: "a"}
-		b := storage.URN{Tenant: "b", Namespace: "a", Kind: "a", ID: "a"}
+		a := URN{Tenant: "a", Namespace: "a", Kind: "a", ID: "a"}
+		b := URN{Tenant: "b", Namespace: "a", Kind: "a", ID: "a"}
 		assert.Equal(t, -1, compareURN(a, b))
 		assert.Equal(t, 1, compareURN(b, a))
-		assert.Equal(t, -1, compareURN(a, storage.URN{Tenant: "a", Namespace: "b"}))
-		assert.Equal(t, -1, compareURN(a, storage.URN{Tenant: "a", Namespace: "a", Kind: "b"}))
-		assert.Equal(t, -1, compareURN(a, storage.URN{Tenant: "a", Namespace: "a", Kind: "a", ID: "b"}))
+		assert.Equal(t, -1, compareURN(a, URN{Tenant: "a", Namespace: "b"}))
+		assert.Equal(t, -1, compareURN(a, URN{Tenant: "a", Namespace: "a", Kind: "b"}))
+		assert.Equal(t, -1, compareURN(a, URN{Tenant: "a", Namespace: "a", Kind: "a", ID: "b"}))
 		assert.Equal(t, 0, compareURN(a, a))
-		assert.Equal(t, -1, compareLink(storage.Link{Path: "a", Target: b}, storage.Link{Path: "b", Target: a}))
-		assert.Equal(t, 1, compareLink(storage.Link{Path: "b", Target: a}, storage.Link{Path: "a", Target: b}))
-		assert.Equal(t, -1, compareLink(storage.Link{Path: "a", Target: a}, storage.Link{Path: "a", Target: b}))
+		assert.Equal(t, -1, compareLink(Link{Path: "a", Target: b}, Link{Path: "b", Target: a}))
+		assert.Equal(t, 1, compareLink(Link{Path: "b", Target: a}, Link{Path: "a", Target: b}))
+		assert.Equal(t, -1, compareLink(Link{Path: "a", Target: a}, Link{Path: "a", Target: b}))
 		assert.Equal(t, -1, compareString("a", "b"))
 		assert.Equal(t, 1, compareString("b", "a"))
 		assert.Equal(t, 0, compareString("a", "a"))
@@ -221,7 +220,7 @@ func TestLinkHelpers(t *testing.T) {
 		assert.False(t, containsLinks(reflect.ValueOf([]dynamicTarget{})))
 		assert.False(t, containsLinks(reflect.ValueOf(struct{}{})))
 
-		assert.True(t, emptyLink(reflect.ValueOf(storage.URN{})))
+		assert.True(t, emptyLink(reflect.ValueOf(URN{})))
 		assert.False(t, emptyLink(reflect.ValueOf(testURN(t, "artifact", "00000000000000000001"))))
 		assert.True(t, emptyLink(reflect.ValueOf("")))
 		assert.False(t, emptyLink(reflect.ValueOf("value")))
@@ -236,7 +235,7 @@ func TestLinkHelpers(t *testing.T) {
 	t.Run("scan types", func(t *testing.T) {
 		type recursive struct {
 			Child  *recursive
-			Target storage.URN `link:"artifact"`
+			Target URN `link:"artifact"`
 		}
 		assert.Equal(t, 1, scanLinks(reflect.TypeOf(recursive{}), nil))
 		assert.Equal(t, 1, scanLinks(reflect.TypeOf([]dynamicTarget{}), nil))
@@ -245,8 +244,8 @@ func TestLinkHelpers(t *testing.T) {
 		assert.Zero(t, scanLinks(reflect.TypeOf(1), nil))
 
 		type fields struct {
-			Target  storage.URN `link:"artifact"`
-			Ignored string      `json:"-" link:"artifact"`
+			Target  URN    `link:"artifact"`
+			Ignored string `json:"-" link:"artifact"`
 			hidden  string
 			Plain   int
 		}
@@ -255,7 +254,7 @@ func TestLinkHelpers(t *testing.T) {
 
 	t.Run("walk values", func(t *testing.T) {
 		source := testURN(t, "app", "00000000000000000000")
-		var links []storage.Link
+		var links []Link
 		assert.NoError(t, walkLinks(reflect.ValueOf(1), nil, source, &links))
 		assert.NoError(t, walkLinks(reflect.ValueOf((*dynamicTarget)(nil)), nil, source, &links))
 		assert.NoError(t, walkLinks(reflect.Value{}, nil, source, &links))
@@ -267,12 +266,12 @@ func TestLinkHelpers(t *testing.T) {
 
 func BenchmarkLinks(b *testing.B) {
 	source := testURN(b, "conversation", "00000000000000000000")
-	first := testURN(b, storage.KindBlob, "00000000000000000001")
-	second := testURN(b, storage.KindBlob, "00000000000000000002")
+	first := testURN(b, KindBlob, "00000000000000000001")
+	second := testURN(b, KindBlob, "00000000000000000002")
 	conversation := &conversation{
-		Meta: storage.Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID},
+		Meta: Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID},
 		Messages: []conversationMessage{
-			{Attachments: []storage.URN{first, second}},
+			{Attachments: []URN{first, second}},
 		},
 	}
 	b.ReportAllocs()
@@ -285,7 +284,7 @@ func BenchmarkLinks(b *testing.B) {
 	}
 }
 
-var benchLinks []storage.Link
+var benchLinks []Link
 
 func TestExtractTagged(t *testing.T) {
 	source := testURN(t, "app", "00000000000000000000")
@@ -294,33 +293,33 @@ func TestExtractTagged(t *testing.T) {
 
 	tests := map[string]struct {
 		value   any
-		want    []storage.Link
+		want    []Link
 		wantErr string
 	}{
 		"extracts urn": {
 			value: target,
-			want:  []storage.Link{storage.Use(source, target, "target")},
+			want:  []Link{Use(source, target, "target")},
 		},
 		"extracts string": {
 			value: target.String(),
-			want:  []storage.Link{storage.Use(source, target, "target")},
+			want:  []Link{Use(source, target, "target")},
 		},
 		"extracts pointer and interface": {
 			value: any(&target),
-			want:  []storage.Link{storage.Use(source, target, "target")},
+			want:  []Link{Use(source, target, "target")},
 		},
 		"extracts slices and sorted maps": {
 			value: map[string]any{
 				"z": target,
 				"a": []string{target.String()},
 			},
-			want: []storage.Link{
-				storage.Use(source, target, "target.a.0"),
-				storage.Use(source, target, "target.z"),
+			want: []Link{
+				Use(source, target, "target.a.0"),
+				Use(source, target, "target.z"),
 			},
 		},
 		"skips nil and zero values": {
-			value: []any{(*storage.URN)(nil), storage.URN{}, ""},
+			value: []any{(*URN)(nil), URN{}, ""},
 		},
 		"rejects invalid string": {value: "not-a-urn", wantErr: "invalid link at target"},
 		"rejects wrong type":     {value: 1, wantErr: "must be a URN or string"},
@@ -329,7 +328,7 @@ func TestExtractTagged(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			var got []storage.Link
+			var got []Link
 			err := extractTagged(reflect.ValueOf(tc.value), []string{"target"}, source, "artifact", &got)
 			if tc.wantErr == "" {
 				require.NoError(t, err)
@@ -341,9 +340,9 @@ func TestExtractTagged(t *testing.T) {
 	}
 }
 
-func testURN(t testing.TB, kind storage.Kind, id string) storage.URN {
+func testURN(t testing.TB, kind Kind, id string) URN {
 	t.Helper()
-	urn, err := storage.MakeURN("acme", "system", kind, id)
+	urn, err := MakeURN("acme", "system", kind, id)
 	require.NoError(t, err)
 	return urn
 }
