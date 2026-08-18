@@ -19,8 +19,6 @@ The goal here is to keep the storage layer small enough to use directly, while s
 - **Composable.** Links, state machines, validation, conversion helpers, and blobs are optional.
 - **cgo-free SQLite.** The SQLite driver uses ncruces/go-sqlite3.
 
-_Disclaimer_: This is a new v0.1 package. The API is useful today, but it is still possible that some names or contracts will change.
-
 # Installation
 
 Requires Go 1.25 or newer.
@@ -28,20 +26,13 @@ Requires Go 1.25 or newer.
 Install the root package and the driver you need:
 
 ```sh
-go get github.com/kelindar/storage@v0.1.0
+go get github.com/kelindar/storage
 go get github.com/kelindar/storage/driver/sqlite
 # or:
 go get github.com/kelindar/storage/driver/pgsql
 ```
 
-The drivers are separate Go modules and depend directly on github.com/kelindar/storage. Pin them to the version or revision used by your application.
-
-If a module proxy reports a checksum conflict for v0.1.0 while the tag is being indexed, use the repository directly:
-
-```sh
-GOPROXY=direct go get github.com/kelindar/storage@v0.1.0
-GOPROXY=direct go get github.com/kelindar/storage/driver/sqlite
-```
+The drivers are separate Go modules and depend directly on github.com/kelindar/storage.
 
 # Resources
 
