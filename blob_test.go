@@ -352,6 +352,20 @@ func TestBlobRecover(t *testing.T) {
 		require.ErrorIs(t, err, storage.ErrNotFound)
 	})
 
+	t.Run("recoveryError", func(t *testing.T) {
+		backend := sqlite.OpenEphemeral(newRegistry())
+		t.Cleanup(func() { require.NoError(t, backend.Close()) })
+		files := &failingFiles{deleteErr: assert.AnError}
+		store := storage.NewStore(backend, files)
+		created, err := store.Upload(t.Context(), storage.URN{Tenant: "acme", Namespace: "default"}, "text/plain", []byte("recover error"))
+		require.NoError(t, err)
+		next := *created
+		next.State = state.Deleting
+		_, err = storage.Update(t.Context(), store, &next)
+		require.NoError(t, err)
+		assert.ErrorIs(t, store.Recover(t.Context()), assert.AnError)
+	})
+
 	t.Run("serializes recovery", func(t *testing.T) {
 		backend := sqlite.OpenEphemeral(newRegistry())
 		t.Cleanup(func() { require.NoError(t, backend.Close()) })

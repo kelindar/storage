@@ -88,7 +88,9 @@ func TestRegistryGuards(t *testing.T) {
 		{field: reflect.StructField{Name: "Field", Tag: `json:"name"`}, name: "name"},
 		{field: reflect.StructField{Name: "Field", Tag: `json:",inline"`}, inline: true},
 		{field: reflect.StructField{Name: "Field", Tag: `json:"-"`}},
+		{field: reflect.StructField{Name: "Field"}},
 	}
+	assert.Equal(t, reflect.TypeOf(Kind1{}), typeOf(Kind1{}))
 	for _, tc := range tests {
 		name, inline := jsonName(tc.field)
 		assert.Equal(t, tc.name, name)

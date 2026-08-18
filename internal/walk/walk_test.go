@@ -57,25 +57,7 @@ func TestWalk(t *testing.T) {
 	t.Run("nilAllocs", func(t *testing.T) {
 		user := &User{}
 
-		err := Walk(user, func(v reflect.Value, field *reflect.StructField, path []string) error {
-			if v.Kind() == reflect.Pointer && v.IsNil() && v.CanSet() {
-				elemType := v.Type().Elem()
-				newVal := reflect.New(elemType)
-				v.Set(newVal)
-				return nil
-			}
-			if v.Kind() == reflect.Map && v.IsNil() && v.CanSet() {
-				newVal := reflect.MakeMap(v.Type())
-				v.Set(newVal)
-				return nil
-			}
-			if v.Kind() == reflect.Slice && v.IsNil() && v.CanSet() {
-				newVal := reflect.MakeSlice(v.Type(), 0, 0)
-				v.Set(newVal)
-				return nil
-			}
-			return nil
-		})
+		err := Walk(user, allocateNilValues)
 
 		assert.NoError(t, err)
 		assert.NotNil(t, user.Address)
@@ -88,15 +70,7 @@ func TestWalk(t *testing.T) {
 	t.Run("defaultValues", func(t *testing.T) {
 		user := &User{}
 
-		err := Walk(user, func(v reflect.Value, field *reflect.StructField, path []string) error {
-			if v.Kind() == reflect.String && v.CanSet() && v.String() == "" {
-				v.SetString("default")
-			}
-			if v.Kind() == reflect.Int && v.CanSet() && v.Int() == 0 {
-				v.SetInt(42)
-			}
-			return nil
-		})
+		err := Walk(user, setDefaultValues)
 
 		assert.NoError(t, err)
 		assert.Equal(t, "default", user.Name)
@@ -119,10 +93,7 @@ func TestWalk(t *testing.T) {
 
 		var paths []string
 
-		err := Walk(user, func(v reflect.Value, field *reflect.StructField, path []string) error {
-			paths = append(paths, pathToString(path))
-			return nil
-		})
+		err := Walk(user, collectPaths(&paths))
 
 		assert.NoError(t, err)
 		expectedPaths := []string{
@@ -142,9 +113,7 @@ func TestWalk(t *testing.T) {
 			"Preferences",
 			"Notifications",
 		}
-		for _, p := range expectedPaths {
-			assert.Contains(t, paths, p)
-		}
+		assertPaths(t, paths, expectedPaths)
 	})
 
 	t.Run("nestedNilAllocs", func(t *testing.T) {
@@ -152,25 +121,7 @@ func TestWalk(t *testing.T) {
 			Address: &Address{},
 		}
 
-		err := Walk(user, func(v reflect.Value, field *reflect.StructField, path []string) error {
-			if v.Kind() == reflect.Pointer && v.IsNil() && v.CanSet() {
-				elemType := v.Type().Elem()
-				newVal := reflect.New(elemType)
-				v.Set(newVal)
-				return nil
-			}
-			if v.Kind() == reflect.Map && v.IsNil() && v.CanSet() {
-				newVal := reflect.MakeMap(v.Type())
-				v.Set(newVal)
-				return nil
-			}
-			if v.Kind() == reflect.Slice && v.IsNil() && v.CanSet() {
-				newVal := reflect.MakeSlice(v.Type(), 0, 0)
-				v.Set(newVal)
-				return nil
-			}
-			return nil
-		})
+		err := Walk(user, allocateNilValues)
 
 		assert.NoError(t, err)
 		assert.NotNil(t, user.Address)
@@ -186,15 +137,7 @@ func TestWalk(t *testing.T) {
 			},
 		}
 
-		err := Walk(user, func(v reflect.Value, field *reflect.StructField, path []string) error {
-			if v.Kind() == reflect.String && v.CanSet() && v.String() == "" {
-				v.SetString("unknown")
-			}
-			if v.Kind() == reflect.Int && v.CanSet() && v.Int() == 0 {
-				v.SetInt(-1)
-			}
-			return nil
-		})
+		err := Walk(user, setNestedDefaults)
 
 		assert.NoError(t, err)
 		assert.Equal(t, "unknown", user.Name)
@@ -235,19 +178,7 @@ func TestWalk(t *testing.T) {
 			},
 		}
 
-		err := Walk(user, func(v reflect.Value, field *reflect.StructField, path []string) error {
-			if v.Kind() == reflect.Pointer && v.IsNil() && v.CanSet() {
-				elemType := v.Type().Elem()
-				newVal := reflect.New(elemType)
-				v.Set(newVal)
-				return nil
-			}
-
-			if field != nil && field.Name == "Message" && v.CanSet() && v.String() == "" {
-				v.SetString("No message")
-			}
-			return nil
-		})
+		err := Walk(user, setNotificationDefaults)
 
 		assert.NoError(t, err)
 		assert.Len(t, user.Notifications, 3)
@@ -256,6 +187,62 @@ func TestWalk(t *testing.T) {
 		assert.Equal(t, "No message", user.Notifications[1].Message)
 		assert.Equal(t, "Hello", user.Notifications[2].Message)
 	})
+}
+
+func allocateNilValues(v reflect.Value, _ *reflect.StructField, _ []string) error {
+	switch {
+	case v.Kind() == reflect.Pointer && v.IsNil() && v.CanSet():
+		v.Set(reflect.New(v.Type().Elem()))
+	case v.Kind() == reflect.Map && v.IsNil() && v.CanSet():
+		v.Set(reflect.MakeMap(v.Type()))
+	case v.Kind() == reflect.Slice && v.IsNil() && v.CanSet():
+		v.Set(reflect.MakeSlice(v.Type(), 0, 0))
+	}
+	return nil
+}
+
+func setDefaultValues(v reflect.Value, _ *reflect.StructField, _ []string) error {
+	switch {
+	case v.Kind() == reflect.String && v.CanSet() && v.String() == "":
+		v.SetString("default")
+	case v.Kind() == reflect.Int && v.CanSet() && v.Int() == 0:
+		v.SetInt(42)
+	}
+	return nil
+}
+
+func setNestedDefaults(v reflect.Value, _ *reflect.StructField, _ []string) error {
+	switch {
+	case v.Kind() == reflect.String && v.CanSet() && v.String() == "":
+		v.SetString("unknown")
+	case v.Kind() == reflect.Int && v.CanSet() && v.Int() == 0:
+		v.SetInt(-1)
+	}
+	return nil
+}
+
+func setNotificationDefaults(v reflect.Value, field *reflect.StructField, _ []string) error {
+	switch {
+	case v.Kind() == reflect.Pointer && v.IsNil() && v.CanSet():
+		v.Set(reflect.New(v.Type().Elem()))
+	case field != nil && field.Name == "Message" && v.CanSet() && v.String() == "":
+		v.SetString("No message")
+	}
+	return nil
+}
+
+func collectPaths(paths *[]string) func(reflect.Value, *reflect.StructField, []string) error {
+	return func(_ reflect.Value, _ *reflect.StructField, path []string) error {
+		*paths = append(*paths, pathToString(path))
+		return nil
+	}
+}
+
+func assertPaths(t *testing.T, paths, expected []string) {
+	t.Helper()
+	for _, path := range expected {
+		assert.Contains(t, paths, path)
+	}
 }
 
 func TestWalkGuardrails(t *testing.T) {

@@ -33,12 +33,7 @@ func TestChanges(t *testing.T) {
 			assert.Equal(t, []string{changeCreate, changeUpdate, changeDelete}, []string{
 				changes[0].Action, changes[1].Action, changes[2].Action,
 			})
-			for i := 1; i < len(changes); i++ {
-				assert.False(t, changes[i].At.Before(changes[i-1].At))
-			}
-			for _, change := range changes {
-				assert.Equal(t, app.URN(), change.URN)
-			}
+			assertOrderedChanges(t, changes, app.URN())
 
 			after := changes[1].At
 			fromAfter := consumeOnce(t, db, "after", storage.Kind("app"), after)
@@ -81,12 +76,7 @@ func TestChanges(t *testing.T) {
 
 	t.Run("caps batches", func(t *testing.T) {
 		testStorage(func(db storage.Storage, _ storage.Registry) {
-			for range changeBatchSize + 1 {
-				app, err := storage.New[*App]("acme", "system")
-				require.NoError(t, err)
-				_, err = db.Insert(t.Context(), app)
-				require.NoError(t, err)
-			}
+			insertApps(t, db, changeBatchSize+1)
 
 			changes := consumeOnce(t, db, "bounded", storage.Kind("app"), time.Time{})
 			assert.Len(t, changes, changeBatchSize)
@@ -142,16 +132,7 @@ func TestChanges(t *testing.T) {
 			newer := changeCursor{createdAt: 2, seq: 2}
 			older := changeCursor{createdAt: 1, seq: 1}
 			require.NoError(t, s.saveChangeCursor(t.Context(), "shared", storage.Kind("app"), newer))
-
-			errs := make(chan error, 32)
-			for range cap(errs) {
-				go func() {
-					errs <- s.saveChangeCursor(t.Context(), "shared", storage.Kind("app"), older)
-				}()
-			}
-			for range cap(errs) {
-				require.NoError(t, <-errs)
-			}
+			saveConcurrentCursors(t, s, older)
 
 			var got changeCursor
 			require.NoError(t, s.db.QueryRow(
@@ -337,6 +318,29 @@ func TestChanges(t *testing.T) {
 			assert.Equal(t, 2, remaining)
 		})
 	})
+}
+
+func assertOrderedChanges(t *testing.T, changes []storage.Change, urn storage.URN) {
+	t.Helper()
+	for i := 1; i < len(changes); i++ {
+		assert.False(t, changes[i].At.Before(changes[i-1].At))
+	}
+	for _, change := range changes {
+		assert.Equal(t, urn, change.URN)
+	}
+}
+
+func saveConcurrentCursors(t *testing.T, s *rds, cursor changeCursor) {
+	t.Helper()
+	errs := make(chan error, 32)
+	for range cap(errs) {
+		go func() {
+			errs <- s.saveChangeCursor(t.Context(), "shared", storage.Kind("app"), cursor)
+		}()
+	}
+	for range cap(errs) {
+		require.NoError(t, <-errs)
+	}
 }
 
 func consumeOnce(t *testing.T, db storage.Storage, consumer string, kind storage.Kind, after time.Time) []storage.Change {

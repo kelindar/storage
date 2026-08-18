@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -45,6 +46,19 @@ func TestEmbed(t *testing.T) {
 	assert.Nil(t, empty.Value)
 	empty.Registry = r
 	assert.Error(t, empty.UnmarshalJSON([]byte(`{"kind":"missing"}`)))
+}
+
+func TestWalkEmbedsGuards(t *testing.T) {
+	fn := func(reflect.Value) {}
+	assert.NoError(t, walkEmbeds(newRegistry(), nil, fn))
+	assert.NoError(t, walkEmbeds(newRegistry(), Kind3{}, fn))
+	assert.NoError(t, walkEmbeds(newRegistry(), new(int), fn))
+	assert.NoError(t, walkEmbeds(newRegistry(), 1, fn))
+	type embedded struct {
+		Value  Embed
+		hidden int
+	}
+	assert.NoError(t, walkEmbeds(newRegistry(), embedded{}, fn))
 }
 
 func TestLockError(t *testing.T) {
@@ -279,6 +293,10 @@ func TestQueryVariables(t *testing.T) {
 	got, err := replaceVariables("{Name}/{Count}/{Ratio}/{Ready}", object)
 	require.NoError(t, err)
 	assert.Equal(t, "Alice/3/1.25/true", got)
+	got, err = replaceVariables("plain", object)
+	require.NoError(t, err)
+	assert.Equal(t, "plain", got)
+	assert.NoError(t, populateFilters(&Query{Filters: map[string][]string{}}, ",,"))
 
 	for _, name := range []string{"Missing", "Name"} {
 		if name == "Name" {

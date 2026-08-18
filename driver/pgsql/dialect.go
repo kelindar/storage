@@ -78,40 +78,32 @@ func bind(query string) string {
 	var out strings.Builder
 	out.Grow(len(query) + 8)
 	index := 1
-	inSingle, inDouble := false, false
+	var quote byte
 	for i := 0; i < len(query); i++ {
 		ch := query[i]
-		switch ch {
-		case '\'':
+		if quote != 0 {
 			out.WriteByte(ch)
-			if inSingle && i+1 < len(query) && query[i+1] == '\'' {
-				out.WriteByte(query[i+1])
-				i++
-				continue
+			if ch == quote {
+				if i+1 < len(query) && query[i+1] == quote {
+					out.WriteByte(query[i+1])
+					i++
+					continue
+				}
+				quote = 0
 			}
-			if !inDouble {
-				inSingle = !inSingle
-			}
-		case '"':
+			continue
+		}
+		if ch == '\'' || ch == '"' {
+			quote = ch
 			out.WriteByte(ch)
-			if !inSingle && i+1 < len(query) && query[i+1] == '"' {
-				out.WriteByte(query[i+1])
-				i++
-				continue
-			}
-			if !inSingle {
-				inDouble = !inDouble
-			}
-		case '?':
-			if inSingle || inDouble {
-				out.WriteByte(ch)
-				continue
-			}
+			continue
+		}
+		if ch == '?' {
 			out.WriteString(fmt.Sprintf("$%d", index))
 			index++
-		default:
-			out.WriteByte(ch)
+			continue
 		}
+		out.WriteByte(ch)
 	}
 	return out.String()
 }

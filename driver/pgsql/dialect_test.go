@@ -18,6 +18,11 @@ func TestBind(t *testing.T) {
 			query: `SELECT '?' AS single, "?" AS double WHERE id = ?`,
 			want:  `SELECT '?' AS single, "?" AS double WHERE id = $1`,
 		},
+		{
+			name:  "escaped quotes",
+			query: `SELECT 'it''s ?' AS single, "a""b?" AS double WHERE id = ?`,
+			want:  `SELECT 'it''s ?' AS single, "a""b?" AS double WHERE id = $1`,
+		},
 	}
 
 	for _, test := range tests {

@@ -20,12 +20,14 @@ type expiringObject struct {
 
 type expirationBackend struct {
 	Storage
-	registry Registry
-	urns     []URN
-	limit    int
-	closed   atomic.Bool
-	closes   atomic.Int32
-	closeErr error
+	registry   Registry
+	urns       []URN
+	limit      int
+	expiredErr error
+	pruneErr   error
+	closed     atomic.Bool
+	closes     atomic.Int32
+	closeErr   error
 }
 
 type expirationBlockedError struct{ error }
@@ -44,7 +46,14 @@ func (s *expirationBackend) Expired(_ context.Context, _ Kind, _ int64, limit in
 				return
 			}
 		}
+		if s.expiredErr != nil {
+			yield(URN{}, s.expiredErr)
+		}
 	}
+}
+
+func (s *expirationBackend) PruneChanges(context.Context, time.Time) error {
+	return s.pruneErr
 }
 
 func (s *expirationBackend) Close() error {
@@ -173,5 +182,27 @@ func TestExpiration(t *testing.T) {
 		summary = store.expire(t.Context(), now, deleteResource)
 		assert.Equal(t, expirationSummary{Attempted: 1, Deleted: 1}, summary)
 		assert.Equal(t, int32(2), attempts.Load())
+	})
+
+	t.Run("queryAndContextGuards", func(t *testing.T) {
+		registry := NewRegistry()
+		_, err := Register[*expiringObject](registry)
+		require.NoError(t, err)
+		backend := &expirationBackend{
+			registry:   registry,
+			urns:       []URN{{Tenant: "acme", Namespace: "system", Kind: "expiring", ID: "one"}},
+			expiredErr: assert.AnError,
+			pruneErr:   assert.AnError,
+		}
+		store := NewStore(backend, nil)
+		summary := store.expire(t.Context(), time.Now(), func(context.Context, URN) error { return nil })
+		assert.Equal(t, expirationSummary{Attempted: 1, Deleted: 1}, summary)
+
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		backend.expiredErr = nil
+		summary = store.expire(ctx, time.Now(), func(context.Context, URN) error { return nil })
+		assert.Zero(t, summary.Attempted)
+		assert.Zero(t, store.expire(t.Context(), time.Now(), nil))
 	})
 }

@@ -270,13 +270,7 @@ func TestStorage(t *testing.T) {
 
 	t.Run("search", func(t *testing.T) {
 		testStorage(func(db storage.Storage, _ storage.Registry) {
-			for range 10 {
-				app, err := storage.New[*App]("acme", "my_project")
-				assert.NoError(t, err)
-
-				_, err = storage.Insert(t.Context(), db, app)
-				assert.NoError(t, err)
-			}
+			insertApps(t, db, 10)
 
 			results, err := storage.Search[*App](t.Context(), db, storage.Query{
 				Namespaces: []string{"my_project"},
@@ -284,23 +278,13 @@ func TestStorage(t *testing.T) {
 			})
 			assert.NoError(t, err)
 
-			count := 0
-			for range results {
-				count++
-			}
-			assert.Equal(t, 5, count)
+			assert.Len(t, storage.Collect(results, nil), 5)
 		})
 	})
 
 	t.Run("count", func(t *testing.T) {
 		testStorage(func(db storage.Storage, _ storage.Registry) {
-			for range 10 {
-				app, err := storage.New[*App]("acme", "my_project")
-				assert.NoError(t, err)
-
-				_, err = storage.Insert(t.Context(), db, app)
-				assert.NoError(t, err)
-			}
+			insertApps(t, db, 10)
 
 			count, err := storage.Count[*App](t.Context(), db, storage.Query{
 				Namespaces: []string{"my_project"},
@@ -309,6 +293,16 @@ func TestStorage(t *testing.T) {
 			assert.Equal(t, 10, count)
 		})
 	})
+}
+
+func insertApps(t *testing.T, db storage.Storage, count int) {
+	t.Helper()
+	for range count {
+		app, err := storage.New[*App]("acme", "my_project")
+		require.NoError(t, err)
+		_, err = storage.Insert(t.Context(), db, app)
+		require.NoError(t, err)
+	}
 }
 
 func TestStorageGuards(t *testing.T) {
@@ -380,9 +374,7 @@ func TestStorageGuards(t *testing.T) {
 	t.Run("search stops", func(t *testing.T) {
 		rows, err := storage.Search[*App](t.Context(), db, storage.Query{})
 		require.NoError(t, err)
-		for range rows {
-			break
-		}
+		rows(func(*App) bool { return false })
 	})
 
 	t.Run("missing", func(t *testing.T) {
@@ -397,6 +389,7 @@ func TestStorageGuards(t *testing.T) {
 	t.Run("canceled", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
+		store := storage.NewStore(db, &storage.Memory{})
 		_, err := storage.Insert(ctx, db, &App{Meta: storage.Meta{Tenant: "acme", Namespace: "default", Kind: "app"}})
 		assert.ErrorIs(t, err, context.Canceled)
 		_, err = storage.Update(ctx, db, created)
@@ -405,6 +398,17 @@ func TestStorageGuards(t *testing.T) {
 		assert.ErrorIs(t, err, context.Canceled)
 		_, err = storage.Search[*App](ctx, db, storage.Query{})
 		assert.ErrorIs(t, err, context.Canceled)
+		_, err = store.Fetch(ctx, created.URN())
+		assert.ErrorIs(t, err, context.Canceled)
+		_, err = store.Search(ctx, "app", storage.Query{})
+		assert.ErrorIs(t, err, context.Canceled)
+		_, err = store.Insert(ctx, created)
+		assert.ErrorIs(t, err, context.Canceled)
+		_, err = store.Update(ctx, created)
+		assert.ErrorIs(t, err, context.Canceled)
+		_, err = store.Delete(ctx, created.URN())
+		assert.ErrorIs(t, err, context.Canceled)
+		assert.NoError(t, store.Close())
 	})
 
 	var nilStore *storage.Store

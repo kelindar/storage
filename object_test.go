@@ -153,6 +153,24 @@ func TestStoreSlice(t *testing.T) {
 	assert.Equal(t, value.Items, decoded.(*resource).Items)
 }
 
+func TestObjectInternals(t *testing.T) {
+	assert.False(t, scanStore(reflect.TypeOf(struct{}{})))
+	assert.False(t, scanEmbed(reflect.TypeOf(struct{}{})))
+	assert.Equal(t, reflect.TypeOf(Kind1{}), typeOf(Kind1{}))
+	assert.Equal(t, "a.b\\.c", joinJSONPath("a", "b.c"))
+	assert.Equal(t, "name", joinJSONPath("", "name"))
+	assert.Equal(t, "prefix", joinJSONPath("prefix", ""))
+
+	var visited int
+	visit := func(string, string, reflect.Value) error {
+		visited++
+		return nil
+	}
+	assert.NoError(t, walkStoreFields(reflect.ValueOf((*Kind1)(nil)), "", "", visit))
+	assert.NoError(t, walkStoreFields(reflect.ValueOf(1), "", "", visit))
+	assert.Zero(t, visited)
+}
+
 func TestFromYAML(t *testing.T) {
 	registry := newRegistry()
 	o, err := New[*Kind3]("acme", "my_project")

@@ -111,17 +111,7 @@ func TestSQLite(t *testing.T) {
 
 	t.Run("search", func(t *testing.T) {
 		testStorage(func(db storage.Storage, _ storage.Registry) {
-			var firstID string
-			for i := range 10 {
-				v, err := storage.New[*App]("acme", "my_project")
-				assert.NoError(t, err)
-				if i == 0 {
-					firstID = v.ID
-				}
-
-				_, err = db.Insert(t.Context(), v)
-				assert.NoError(t, err)
-			}
+			firstID := insertApps(t, db, 10)
 
 			results, err := db.Search(t.Context(), "App", storage.Query{
 				Namespaces: []string{"my_project"},
@@ -130,11 +120,7 @@ func TestSQLite(t *testing.T) {
 			})
 			assert.NoError(t, err)
 
-			count := 0
-			for range results {
-				count++
-			}
-			assert.Equal(t, 5, count)
+			assert.Len(t, storage.Collect(results, nil), 5)
 
 			results, err = db.Search(t.Context(), "App", storage.Query{Tenant: "acme", IDs: []string{firstID}})
 			assert.NoError(t, err)
@@ -161,14 +147,7 @@ func TestSQLite(t *testing.T) {
 
 	t.Run("search parameterizes filters", func(t *testing.T) {
 		testStorage(func(db storage.Storage, _ storage.Registry) {
-			for i, name := range []string{"Public", "Private"} {
-				app, err := storage.New[*App]([]string{"acme", "other"}[i], "system")
-				require.NoError(t, err)
-				app.ID = fmt.Sprintf("%020d", i+1)
-				app.Name = name
-				_, err = db.Insert(t.Context(), app)
-				require.NoError(t, err)
-			}
+			insertNamedApps(t, db, []string{"Public", "Private"})
 
 			results, err := storage.Search[*App](t.Context(), db, storage.Query{Filters: map[string][]string{
 				"tenant": {"acme"},
@@ -207,11 +186,7 @@ func TestSQLite(t *testing.T) {
 			results, err := db.Search(t.Context(), "App", storage.Query{CreatedBefore: cutoff})
 			assert.NoError(t, err)
 
-			var names []string
-			for result := range results {
-				names = append(names, result.(*App).Name)
-			}
-			assert.Equal(t, []string{"old"}, names)
+			assert.Equal(t, []string{"old"}, appNames(storage.Collect(results, nil)))
 		})
 	})
 
@@ -236,11 +211,7 @@ func TestSQLite(t *testing.T) {
 			results, err := db.Search(t.Context(), "App", storage.Query{UpdatedAfter: cutoff})
 			assert.NoError(t, err)
 
-			var names []string
-			for result := range results {
-				names = append(names, result.(*App).Name)
-			}
-			assert.Equal(t, []string{recent.Name}, names)
+			assert.Equal(t, []string{recent.Name}, appNames(storage.Collect(results, nil)))
 		})
 	})
 
@@ -256,11 +227,9 @@ func TestSQLite(t *testing.T) {
 			results, err := db.Search(t.Context(), "app", storage.Query{Namespaces: []string{"my_project"}})
 			assert.NoError(t, err)
 
-			for result := range results {
-				assert.Equal(t, "legacy-id", result.URN().ID)
-				return
-			}
-			require.Fail(t, "expected legacy row")
+			objects := storage.Collect(results, nil)
+			require.Len(t, objects, 1)
+			assert.Equal(t, "legacy-id", objects[0].URN().ID)
 		})
 	})
 
@@ -301,11 +270,7 @@ func TestSQLite(t *testing.T) {
 			})
 			assert.NoError(t, err)
 
-			var names []string
-			for result := range results {
-				names = append(names, result.(*App).Name)
-			}
-			assert.ElementsMatch(t, []string{"Simple", "Simulator"}, names)
+			assert.ElementsMatch(t, []string{"Simple", "Simulator"}, appNames(storage.Collect(results, nil)))
 		})
 	})
 
@@ -328,25 +293,15 @@ func TestSQLite(t *testing.T) {
 			})
 			assert.NoError(t, err)
 
-			count := 0
-			for result := range results {
-				count++
-				assert.Equal(t, "Application special target", result.(*App).Name)
-			}
-
-			assert.Equal(t, 1, count)
+			objects := storage.Collect(results, nil)
+			require.Len(t, objects, 1)
+			assert.Equal(t, "Application special target", objects[0].(*App).Name)
 		})
 	})
 
 	t.Run("count", func(t *testing.T) {
 		testStorage(func(db storage.Storage, _ storage.Registry) {
-			for range 10 {
-				v, err := storage.New[*App]("acme", "my_project")
-				assert.NoError(t, err)
-
-				_, err = db.Insert(t.Context(), v)
-				assert.NoError(t, err)
-			}
+			insertApps(t, db, 10)
 
 			ct, err := db.Count(t.Context(), "App", storage.Query{
 				Namespaces: []string{"my_project"},
@@ -373,6 +328,41 @@ func TestSQLite(t *testing.T) {
 			assert.Equal(t, "updated", stored.(*App).Name)
 		})
 	})
+}
+
+func insertApps(t *testing.T, db storage.Storage, count int) string {
+	t.Helper()
+	var firstID string
+	for i := range count {
+		app, err := storage.New[*App]("acme", "my_project")
+		require.NoError(t, err)
+		if i == 0 {
+			firstID = app.ID
+		}
+		_, err = db.Insert(t.Context(), app)
+		require.NoError(t, err)
+	}
+	return firstID
+}
+
+func insertNamedApps(t *testing.T, db storage.Storage, names []string) {
+	t.Helper()
+	for i, name := range names {
+		app, err := storage.New[*App]([]string{"acme", "other"}[i], "system")
+		require.NoError(t, err)
+		app.ID = fmt.Sprintf("%020d", i+1)
+		app.Name = name
+		_, err = db.Insert(t.Context(), app)
+		require.NoError(t, err)
+	}
+}
+
+func appNames(objects []storage.Object) []string {
+	names := make([]string, 0, len(objects))
+	for _, object := range objects {
+		names = append(names, object.(*App).Name)
+	}
+	return names
 }
 
 func TestExpirationPersistence(t *testing.T) {
