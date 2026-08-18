@@ -11,7 +11,7 @@ require (
 	github.com/ncruces/go-sqlite3 v0.35.1
 	github.com/rs/xid v1.6.0
 	github.com/stretchr/testify v1.11.1
-	github.com/kelindar/storage/driver/sqlite v0.9.0
+	github.com/kelindar/storage/driver/sqlite v0.10.0
 	github.com/tidwall/gjson v1.19.0
 	github.com/tidwall/sjson v1.2.5
 	github.com/zeebo/xxh3 v1.0.2
