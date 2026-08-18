@@ -128,8 +128,8 @@ func TestLinksErrors(t *testing.T) {
 }
 
 func TestLinkInfo(t *testing.T) {
-	first := linkInfo(reflect.TypeOf(dynamicTarget{}))
-	second := linkInfo(reflect.TypeOf(dynamicTarget{}))
+	first := linkInfo(reflect.TypeFor[dynamicTarget]())
+	second := linkInfo(reflect.TypeFor[dynamicTarget]())
 
 	assert.Same(t, first, second)
 	require.Len(t, first.fields, 1)
@@ -227,8 +227,8 @@ func TestLinkHelpers(t *testing.T) {
 		assert.True(t, emptyLink(reflect.ValueOf([]string{})))
 		assert.False(t, emptyLink(reflect.ValueOf([1]string{"value"})))
 		assert.False(t, emptyLink(reflect.ValueOf(1)))
-		assert.True(t, hasLink(reflect.TypeOf(dynamicTarget{})))
-		assert.False(t, hasLink(reflect.TypeOf(struct{}{})))
+		assert.True(t, hasLink(reflect.TypeFor[dynamicTarget]()))
+		assert.False(t, hasLink(reflect.TypeFor[struct{}]()))
 		assert.Nil(t, linkInfo(nil))
 	})
 
@@ -237,11 +237,11 @@ func TestLinkHelpers(t *testing.T) {
 			Child  *recursive
 			Target URN `link:"artifact"`
 		}
-		assert.Equal(t, 1, scanLinks(reflect.TypeOf(recursive{}), nil))
-		assert.Equal(t, 1, scanLinks(reflect.TypeOf([]dynamicTarget{}), nil))
-		assert.Equal(t, 1, scanLinks(reflect.TypeOf(map[string]dynamicTarget{}), nil))
-		assert.Equal(t, 1, scanLinks(reflect.TypeOf((*interface{})(nil)).Elem(), nil))
-		assert.Zero(t, scanLinks(reflect.TypeOf(1), nil))
+		assert.Equal(t, 1, scanLinks(reflect.TypeFor[recursive](), nil))
+		assert.Equal(t, 1, scanLinks(reflect.TypeFor[[]dynamicTarget](), nil))
+		assert.Equal(t, 1, scanLinks(reflect.TypeFor[map[string]dynamicTarget](), nil))
+		assert.Equal(t, 1, scanLinks(reflect.TypeFor[interface{}](), nil))
+		assert.Zero(t, scanLinks(reflect.TypeFor[int](), nil))
 
 		type fields struct {
 			Target  URN    `link:"artifact"`
@@ -249,7 +249,7 @@ func TestLinkHelpers(t *testing.T) {
 			hidden  string
 			Plain   int
 		}
-		assert.Len(t, scanFields(reflect.TypeOf(fields{})), 1)
+		assert.Len(t, scanFields(reflect.TypeFor[fields]()), 1)
 	})
 
 	t.Run("walk values", func(t *testing.T) {

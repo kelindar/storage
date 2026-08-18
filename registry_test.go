@@ -74,7 +74,7 @@ func TestRegistryGuards(t *testing.T) {
 		Meta `kind:"1bad"`
 	}
 	for _, typ := range []reflect.Type{
-		reflect.TypeOf(noMeta{}), reflect.TypeOf(noKind{}), reflect.TypeOf(badMeta{}), reflect.TypeOf(badKind{}),
+		reflect.TypeFor[noMeta](), reflect.TypeFor[noKind](), reflect.TypeFor[badMeta](), reflect.TypeFor[badKind](),
 	} {
 		_, err := KindOf(typ)
 		assert.Error(t, err)
@@ -90,7 +90,7 @@ func TestRegistryGuards(t *testing.T) {
 		{field: reflect.StructField{Name: "Field", Tag: `json:"-"`}},
 		{field: reflect.StructField{Name: "Field"}},
 	}
-	assert.Equal(t, reflect.TypeOf(Kind1{}), typeOf(Kind1{}))
+	assert.Equal(t, reflect.TypeFor[Kind1](), typeOf(Kind1{}))
 	for _, tc := range tests {
 		name, inline := jsonName(tc.field)
 		assert.Equal(t, tc.name, name)
