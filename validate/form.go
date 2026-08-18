@@ -17,13 +17,16 @@ func Create(value any) error {
 	}
 
 	var errs Errors
-	err := walk.Walk(value, func(v reflect.Value, field *reflect.StructField, path []string) error {
+	_ = walk.Walk(value, func(v reflect.Value, field *reflect.StructField, path []string) error {
 		if field != nil && field.Tag.Get("form") == "ro" && !walk.IsEmpty(v) {
 			errs = append(errs, readOnlyError(field, path))
 		}
 		return nil
 	})
-	return formResult(err, errs)
+	if len(errs) > 0 {
+		return errs
+	}
+	return nil
 }
 
 // Update validates form field access for an update payload. Current and
@@ -46,12 +49,11 @@ func Update(current, incoming any) error {
 
 	var errs Errors
 	var projections []reflect.Value
-	err = walk.Walk(incoming, func(v reflect.Value, field *reflect.StructField, path []string) error {
-		if field == nil || walk.IsEmpty(v) {
+	_ = walk.Walk(incoming, func(v reflect.Value, field *reflect.StructField, path []string) error {
+		switch {
+		case field == nil || walk.IsEmpty(v):
 			return nil
-		}
-		access := field.Tag.Get("form")
-		if access != "ro" && access != "create" {
+		case field.Tag.Get("form") != "ro" && field.Tag.Get("form") != "create":
 			return nil
 		}
 
@@ -67,8 +69,8 @@ func Update(current, incoming any) error {
 			return nil
 		}
 	})
-	if err := formResult(err, errs); err != nil {
-		return err
+	if len(errs) > 0 {
+		return errs
 	}
 	for _, projection := range projections {
 		projection.SetZero()
@@ -86,16 +88,6 @@ func formStruct(value any) (reflect.Value, error) {
 		return reflect.Value{}, fmt.Errorf("value must point to a struct, got %s", v.Kind())
 	}
 	return v, nil
-}
-
-func formResult(err error, errs Errors) error {
-	if err != nil {
-		return err
-	}
-	if len(errs) > 0 {
-		return errs
-	}
-	return nil
 }
 
 func readOnlyError(field *reflect.StructField, path []string) Error {
@@ -132,11 +124,7 @@ func formValueAt(v reflect.Value, path []string) (reflect.Value, bool) {
 		if !ok {
 			return reflect.Value{}, false
 		}
-		value := v.MapIndex(key)
-		if !value.IsValid() {
-			return reflect.Value{}, false
-		}
-		return formValueAt(value, rest)
+		return formValueAt(v.MapIndex(key), rest)
 	default:
 		return reflect.Value{}, false
 	}

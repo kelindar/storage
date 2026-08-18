@@ -1,6 +1,7 @@
 package validate
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -85,8 +86,49 @@ func TestFormGuards(t *testing.T) {
 	assert.Error(t, Create(nil))
 	assert.Error(t, Create(formRecord{}))
 	assert.Error(t, Create(&[]formRecord{}))
+	assert.Error(t, Update(nil, &formRecord{}))
 	assert.Error(t, Update(&formRecord{}, nil))
 	assert.Error(t, Update(&formRecord{}, &struct{}{}))
+}
+
+func TestFormValueAt(t *testing.T) {
+	value := &formRecord{
+		Items:  []formItem{{ID: "item-1"}},
+		Labels: map[string]formItem{"env": {ID: "label-1"}},
+	}
+	root := reflect.ValueOf(value).Elem()
+
+	tests := map[string]struct {
+		value reflect.Value
+		path  []string
+	}{
+		"nil pointer": {
+			value: reflect.ValueOf((*formRecord)(nil)),
+			path:  []string{"name"},
+		},
+		"missing field": {
+			value: root,
+			path:  []string{"missing"},
+		},
+		"invalid slice index": {
+			value: root,
+			path:  []string{"items", "missing"},
+		},
+		"missing map key": {
+			value: root,
+			path:  []string{"labels", "missing"},
+		},
+		"scalar value": {
+			value: root.FieldByName("Name"),
+			path:  []string{"nested"},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, ok := formValueAt(tc.value, tc.path)
+			assert.False(t, ok)
+		})
+	}
 }
 
 func requireFormErrors(t *testing.T, err error, count int) []Error {
