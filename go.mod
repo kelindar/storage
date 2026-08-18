@@ -3,6 +3,7 @@ module github.com/kelindar/storage
 go 1.25.0
 
 retract [v0.1.0, v0.8.0] // occupied by the former chartmuseum/storage module
+retract v0.9.0 // retained a local-only driver requirement
 
 require (
 	github.com/kelindar/async v1.6.0
@@ -10,7 +11,7 @@ require (
 	github.com/ncruces/go-sqlite3 v0.35.1
 	github.com/rs/xid v1.6.0
 	github.com/stretchr/testify v1.11.1
-	github.com/kelindar/storage/driver/sqlite v0.0.0
+	github.com/kelindar/storage/driver/sqlite v0.9.0
 	github.com/tidwall/gjson v1.19.0
 	github.com/tidwall/sjson v1.2.5
 	github.com/zeebo/xxh3 v1.0.2
