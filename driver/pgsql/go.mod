@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/kelindar/async v1.6.0
-	github.com/kelindar/storage v0.0.0
+	github.com/kelindar/storage v0.1.0
 	github.com/rs/xid v1.6.0
 	github.com/zeebo/xxh3 v1.0.2
 )
@@ -27,5 +27,3 @@ require (
 	golang.org/x/text v0.29.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
-
-replace github.com/kelindar/storage => ../..
