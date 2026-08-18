@@ -1,0 +1,19 @@
+# Binaries for programs and plugins
+*.exe
+*.dll
+*.so
+*.dylib
+*.gob
+
+# Test and coverage output
+*.test
+*.out
+coverage/
+
+# Local dependency and tooling directories
+.glide/
+vendor/
+
+# Editors and operating-system files
+.idea/
+.DS_Store

@@ -1,0 +1,190 @@
+package storage
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestEmbed(t *testing.T) {
+	r := newRegistry()
+
+	// Create a new app
+	app, err := New[*Kind3]("acme", "my_project")
+	assert.NoError(t, err)
+
+	// Create a new deployment with the associated app
+	dep, err := New("acme", "my_project", func(r *Kind2) error {
+		r.App = app.URN()
+		return nil
+	})
+	assert.NoError(t, err)
+
+	req, err := New("acme", "my_project", func(r *Kind4) error {
+		r.After = Embed{Value: dep}
+		return nil
+	})
+	assert.NoError(t, err)
+
+	// Marshal the request
+	data, err := ToJSON(req)
+	assert.NoError(t, err)
+
+	// Unmarshal the request
+	out, err := FromJSON(r, data)
+	assert.NoError(t, err)
+	decoded := out.(*Kind4).After.Value.(*Kind2)
+	assert.NotNil(t, decoded)
+	assert.Equal(t, dep.ID, decoded.ID)
+
+}
+
+// MockObject is a sample struct for testing purposes.
+type MockObject struct {
+	Meta   `kind:"mock" json:",inline"`
+	Name   string
+	Age    int
+	Income float64
+}
+
+func TestParseQuery(t *testing.T) {
+	tests := map[string]struct {
+		query   string
+		object  Object
+		expect  Query
+		invalid bool
+	}{
+		"invalid namespace format": {query: "namespace=;state=active", invalid: true},
+		"invalid filter key empty": {query: "namespace=company;filter=:value;state=active", invalid: true},
+		"invalid match format":     {query: "namespace=company;match=;", invalid: true},
+		"empty query string": {
+			query:  "",
+			expect: Query{},
+		},
+		"valid query with all components": {
+			query: "tenant=acme;namespace=company;state=active;filter=age:30,income:1000;match={Name}",
+			object: &MockObject{
+				Name:   "Alice",
+				Age:    30,
+				Income: 50000.00,
+			},
+			expect: Query{
+				Tenant:     "acme",
+				Namespaces: []string{"company"},
+				States:     []string{"active"},
+				Filters: map[string][]string{
+					"age":    {"30"},
+					"income": {"1000"},
+				},
+				Match: "Alice",
+			},
+		},
+		"single valid filter": {
+			query: "namespace=company;state=active;filter=age:30;match={Name}",
+			object: &MockObject{
+				Name: "Alice",
+			},
+			expect: Query{
+				Namespaces: []string{"company"},
+				States:     []string{"active"},
+				Filters: map[string][]string{
+					"age": {"30"},
+				},
+				Match: "Alice",
+			},
+		},
+		"existence check filter": {
+			query: "filter=email",
+			expect: Query{
+				Filters: map[string][]string{
+					"email": {""},
+				},
+			},
+		},
+		"pagination and sorting": {
+			query: "match=alice;sort=-updatedAt,name;limit=20;offset=40",
+			expect: Query{
+				Filters: map[string][]string{},
+				Match:   "alice",
+				SortBy:  []string{"-updatedAt", "name"},
+				Limit:   20,
+				Offset:  40,
+			},
+		},
+		"updated after": {
+			query:  "updatedAfter=2025-01-02T03:04:05Z",
+			expect: Query{Filters: map[string][]string{}, UpdatedAfter: time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)},
+		},
+		"index filter": {
+			query: "index=urn:acme:system:automation:demo",
+			expect: Query{
+				Filters: map[string][]string{},
+				Indexes: []string{"urn:acme:system:automation:demo"},
+			},
+		},
+		"id filter": {
+			query:  "id=one,two",
+			expect: Query{Filters: map[string][]string{}, IDs: []string{"one", "two"}},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if tt.object == nil {
+				tt.object = &MockObject{}
+			}
+
+			result, err := ParseQuery(tt.query, tt.object, Query{})
+			if tt.invalid {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expect, result)
+			}
+		})
+	}
+}
+
+func TestEncodeQuery(t *testing.T) {
+	tests := map[string]Query{
+		"": {},
+		"namespace=company;state=active;filter=age:30;match=Alice;": {
+			Namespaces: []string{"company"},
+			States:     []string{"active"},
+			Filters: map[string][]string{
+				"age": {"30"},
+			},
+			Match: "Alice",
+		},
+		"tenant=acme;": {Tenant: "acme"},
+		"id=one,two;":  {IDs: []string{"one", "two"}},
+		"namespace=company;state=active,inactive;filter=age:30;match=Alice;": {
+			Namespaces: []string{"company"},
+			States:     []string{"active", "inactive"},
+			Filters: map[string][]string{
+				"age": {"30"},
+			},
+			Match: "Alice",
+		},
+		"namespace=default;index=field1,field2;": {
+			Namespaces: []string{"default"},
+			Indexes:    []string{"field1", "field2"},
+		},
+		"match=alice;sort=-updatedAt,name;limit=20;offset=40;": {
+			Match:  "alice",
+			SortBy: []string{"-updatedAt", "name"},
+			Limit:  20,
+			Offset: 40,
+		},
+		"updatedAfter=2025-01-02T03:04:05Z;": {
+			UpdatedAfter: time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC),
+		},
+	}
+
+	for expect, query := range tests {
+		t.Run(expect, func(t *testing.T) {
+			assert.Equal(t, expect, query.String())
+		})
+	}
+}
