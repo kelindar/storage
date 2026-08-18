@@ -2,8 +2,10 @@ package storage
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -40,6 +42,29 @@ func TestNewWith(t *testing.T) {
 	assert.Equal(t, "my_project", r.Namespace)
 	assert.NotEmpty(t, r.ID)
 	assert.Equal(t, "my_name", r.Name)
+}
+
+func TestObjectGuards(t *testing.T) {
+	_, err := New[*Kind1]("acme", "my_project", func(*Kind1) error { return assert.AnError })
+	assert.ErrorIs(t, err, assert.AnError)
+
+	_, err = New[*invalidResource]("acme", "my_project")
+	assert.Error(t, err)
+	_, err = NewByType(reflect.TypeOf(struct{}{}), "acme", "my_project")
+	assert.Error(t, err)
+
+	_, err = FromJSON(newRegistry(), []byte("{"))
+	assert.Error(t, err)
+	_, err = FromJSON(newRegistry(), []byte(`{"kind":"missing"}`))
+	assert.ErrorIs(t, err, ErrKindNotFound)
+	_, err = ReadJSON(newRegistry(), failingReader{})
+	assert.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	_, err = ReadYAML(newRegistry(), failingReader{})
+	assert.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	_, err = FromYAML(newRegistry(), []byte("["))
+	assert.Error(t, err)
+	assert.Error(t, ReadFile("missing.json", nil, &struct{}{}))
+	assert.Equal(t, "persisted-id", (&Meta{ID: "persisted-id"}).Title())
 }
 
 func TestMarshal(t *testing.T) {
@@ -103,6 +128,29 @@ func TestNestedStore(t *testing.T) {
 	decoded, err := FromJSON(registry, data)
 	require.NoError(t, err)
 	assert.Equal(t, value.Nested, decoded.(*resource).Nested)
+}
+
+func TestStoreSlice(t *testing.T) {
+	type nested struct {
+		Name string `json:"name" store:"stored"`
+	}
+	type resource struct {
+		Meta  `kind:"storeslice" json:",inline"`
+		Items []nested `json:"items"`
+	}
+
+	registry := NewRegistry()
+	MustRegister[*resource](registry)
+	value, err := New[*resource]("acme", "default")
+	require.NoError(t, err)
+	value.Items = []nested{{Name: "one"}, {Name: "two"}}
+
+	data, err := ToJSON(value)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"items":[{"stored":"one"},{"stored":"two"}],"id":"`+value.ID+`","kind":"storeslice","tenant":"acme","namespace":"default"}`, string(data))
+	decoded, err := FromJSON(registry, data)
+	require.NoError(t, err)
+	assert.Equal(t, value.Items, decoded.(*resource).Items)
 }
 
 func TestFromYAML(t *testing.T) {
@@ -351,3 +399,7 @@ func TestSelect(t *testing.T) {
 		assert.GreaterOrEqual(t, cap(got), 64)
 	})
 }
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }

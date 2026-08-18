@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -71,24 +72,97 @@ func TestLabel(t *testing.T) {
 
 func TestNumeric(t *testing.T) {
 	t.Run("int64", func(t *testing.T) {
-		v, err := Int64("42")
-		require.NoError(t, err)
-		assert.Equal(t, int64(42), v)
-
-		_, err = Int64(struct{}{})
-		require.Error(t, err)
+		tests := []struct {
+			name  string
+			value any
+			want  int64
+			err   bool
+		}{
+			{"float64", float64(1.5), 1, false},
+			{"float32", float32(2.5), 2, false},
+			{"int", 3, 3, false},
+			{"int64", int64(4), 4, false},
+			{"json", json.Number("5"), 5, false},
+			{"string", "42", 42, false},
+			{"nil", nil, 0, false},
+			{"bad json", json.Number("bad"), 0, true},
+			{"bad string", "bad", 0, true},
+			{"unsupported", struct{}{}, 0, true},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				got, err := Int64(tc.value)
+				if tc.err {
+					require.Error(t, err)
+					return
+				}
+				require.NoError(t, err)
+				assert.Equal(t, tc.want, got)
+			})
+		}
 	})
 
 	t.Run("uint64", func(t *testing.T) {
-		v, err := Uint64(uint64(7))
-		require.NoError(t, err)
-		assert.Equal(t, uint64(7), v)
+		tests := []struct {
+			name  string
+			value any
+			want  uint64
+			err   bool
+		}{
+			{"float64", float64(1.5), 1, false},
+			{"float32", float32(2.5), 2, false},
+			{"int", 3, 3, false},
+			{"int64", int64(4), 4, false},
+			{"uint64", uint64(5), 5, false},
+			{"json", json.Number("6"), 6, false},
+			{"string", "7", 7, false},
+			{"nil", nil, 0, false},
+			{"bad json", json.Number("bad"), 0, true},
+			{"bad string", "bad", 0, true},
+			{"unsupported", struct{}{}, 0, true},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				got, err := Uint64(tc.value)
+				if tc.err {
+					require.Error(t, err)
+					return
+				}
+				require.NoError(t, err)
+				assert.Equal(t, tc.want, got)
+			})
+		}
 	})
 
 	t.Run("float64", func(t *testing.T) {
-		v, err := Float64("3.14")
-		require.NoError(t, err)
-		assert.Equal(t, 3.14, v)
+		tests := []struct {
+			name  string
+			value any
+			want  float64
+			err   bool
+		}{
+			{"float64", 1.5, 1.5, false},
+			{"float32", float32(2.5), 2.5, false},
+			{"int", 3, 3, false},
+			{"int64", int64(4), 4, false},
+			{"json", json.Number("5.5"), 5.5, false},
+			{"string", "3.14", 3.14, false},
+			{"nil", nil, 0, false},
+			{"bad json", json.Number("bad"), 0, true},
+			{"bad string", "bad", 0, true},
+			{"unsupported", struct{}{}, 0, true},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				got, err := Float64(tc.value)
+				if tc.err {
+					require.Error(t, err)
+					return
+				}
+				require.NoError(t, err)
+				assert.Equal(t, tc.want, got)
+			})
+		}
 	})
 }
 
@@ -104,6 +178,9 @@ func TestScheduleLabel(t *testing.T) {
 		{name: "hourly", cron: "30 * * * *", want: "hourly at :30"},
 		{name: "daily", cron: "0 8 * * *", tz: "America/New_York", want: "daily 08:00 America/New_York"},
 		{name: "weekly", cron: "0 9 * * 1", want: "monday 09:00"},
+		{name: "sunday zero", cron: "0 9 * * 0", want: "sunday 09:00"},
+		{name: "sunday seven", cron: "0 9 * * 7", want: "sunday 09:00"},
+		{name: "weekly fallback", cron: "0 9 * * 8", want: "weekly 09:00"},
 		{name: "monthly", cron: "0 0 15 * *", want: "monthly day 15 00:00"},
 		{name: "month field", cron: "0 0 1 6 *", want: "0 0 1 6 *"},
 		{name: "invalid field count", cron: "* * * *", tz: "UTC", want: "* * * * UTC"},
@@ -115,6 +192,12 @@ func TestScheduleLabel(t *testing.T) {
 			assert.Equal(t, tt.want, ScheduleLabel(tt.cron, tt.tz))
 		})
 	}
+}
+
+func TestTitleHelpers(t *testing.T) {
+	assert.Equal(t, "", titleWord(""))
+	invalid := string([]byte{'i', 'n', 'v', 0xff})
+	assert.Equal(t, []string{invalid}, splitCase(invalid))
 }
 
 func TestBuiltinID(t *testing.T) {

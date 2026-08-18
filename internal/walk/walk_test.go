@@ -282,9 +282,10 @@ func TestWalkGuardrails(t *testing.T) {
 
 	t.Run("walksInterfaceValues", func(t *testing.T) {
 		type boxed struct {
-			Value any
+			Value  any
+			hidden string
 		}
-		target := &boxed{Value: map[string]string{"role": "admin"}}
+		target := &boxed{Value: map[string]string{"role": "admin"}, hidden: "secret"}
 		var paths []string
 		err := Walk(target, func(_ reflect.Value, _ *reflect.StructField, path []string) error {
 			paths = append(paths, pathToString(path))

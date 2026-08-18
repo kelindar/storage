@@ -1,6 +1,7 @@
 package walk
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
@@ -50,6 +51,24 @@ type conversationMessage struct {
 	Attachments []storage.URN `json:"attachments" link:"blob"`
 }
 
+type mapObject struct {
+	storage.Meta `json:",inline"`
+	Value        map[string]dynamicTarget `json:"value"`
+}
+
+type invalidObject struct {
+	storage.Meta `json:",inline"`
+	Target       string `json:"target" link:"artifact"`
+}
+
+type errorLinker struct {
+	storage.Meta `json:",inline"`
+}
+
+func (*errorLinker) Links() ([]storage.Link, error) {
+	return nil, errors.New("linker failed")
+}
+
 func (o *linkObject) Links() ([]storage.Link, error) {
 	return []storage.Link{storage.Use(o.URN(), o.target, "target")}, nil
 }
@@ -96,6 +115,19 @@ func TestLinksUsesString(t *testing.T) {
 	assert.Equal(t, []storage.Link{storage.Use(source, target, "target")}, links)
 }
 
+func TestLinksErrors(t *testing.T) {
+	source := testURN(t, "app", "00000000000000000000")
+
+	_, err := Links(&invalidObject{
+		Meta:   storage.Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID},
+		Target: "not-a-urn",
+	})
+	assert.ErrorContains(t, err, "invalid link")
+
+	_, err = Links(&errorLinker{Meta: storage.Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID}})
+	assert.ErrorContains(t, err, "linker failed")
+}
+
 func TestLinkInfo(t *testing.T) {
 	first := linkInfo(reflect.TypeOf(dynamicTarget{}))
 	second := linkInfo(reflect.TypeOf(dynamicTarget{}))
@@ -118,10 +150,15 @@ func TestLinksWalk(t *testing.T) {
 			Meta: storage.Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID},
 			Spec: inlineSpec{Config: inlineConfig{Target: target}},
 		},
+		"map": &mapObject{
+			Meta:  storage.Meta{Tenant: source.Tenant, Namespace: source.Namespace, Kind: source.Kind, ID: source.ID},
+			Value: map[string]dynamicTarget{"entry": {Target: target}},
+		},
 	}
 	want := map[string][]storage.Link{
 		"dynamic": {storage.Use(source, target, "value.target")},
 		"inline":  {storage.Use(source, target, "spec.target")},
+		"map":     {storage.Use(source, target, "value.entry.target")},
 	}
 
 	for name, obj := range tests {
@@ -131,6 +168,101 @@ func TestLinksWalk(t *testing.T) {
 			assert.Equal(t, want[name], links)
 		})
 	}
+}
+
+func TestLinkHelpers(t *testing.T) {
+	t.Run("options", func(t *testing.T) {
+		assert.True(t, hasOption("inline,required", "inline"))
+		assert.True(t, hasOption("required,inline", "inline"))
+		assert.False(t, hasOption("required", "inline"))
+	})
+
+	t.Run("map keys", func(t *testing.T) {
+		tests := []struct {
+			value any
+			want  string
+		}{
+			{"name", "name"},
+			{true, "true"},
+			{int8(-2), "-2"},
+			{uint16(3), "3"},
+			{float32(1.5), "1.5"},
+			{struct{ Name string }{"x"}, "{x}"},
+		}
+		for _, tc := range tests {
+			key := reflect.ValueOf(tc.value)
+			assert.Equal(t, tc.want, string(appendMapKey(nil, key)))
+			assert.Equal(t, tc.want, mapKeyString(key))
+		}
+	})
+
+	t.Run("comparisons", func(t *testing.T) {
+		a := storage.URN{Tenant: "a", Namespace: "a", Kind: "a", ID: "a"}
+		b := storage.URN{Tenant: "b", Namespace: "a", Kind: "a", ID: "a"}
+		assert.Equal(t, -1, compareURN(a, b))
+		assert.Equal(t, 1, compareURN(b, a))
+		assert.Equal(t, -1, compareURN(a, storage.URN{Tenant: "a", Namespace: "b"}))
+		assert.Equal(t, -1, compareURN(a, storage.URN{Tenant: "a", Namespace: "a", Kind: "b"}))
+		assert.Equal(t, -1, compareURN(a, storage.URN{Tenant: "a", Namespace: "a", Kind: "a", ID: "b"}))
+		assert.Equal(t, 0, compareURN(a, a))
+		assert.Equal(t, -1, compareLink(storage.Link{Path: "a", Target: b}, storage.Link{Path: "b", Target: a}))
+		assert.Equal(t, 1, compareLink(storage.Link{Path: "b", Target: a}, storage.Link{Path: "a", Target: b}))
+		assert.Equal(t, -1, compareLink(storage.Link{Path: "a", Target: a}, storage.Link{Path: "a", Target: b}))
+		assert.Equal(t, -1, compareString("a", "b"))
+		assert.Equal(t, 1, compareString("b", "a"))
+		assert.Equal(t, 0, compareString("a", "a"))
+	})
+
+	t.Run("presence", func(t *testing.T) {
+		assert.True(t, containsLinks(reflect.ValueOf(dynamicTarget{})))
+		assert.True(t, containsLinks(reflect.ValueOf(map[string]dynamicTarget{"x": {}})))
+		assert.False(t, containsLinks(reflect.Value{}))
+		assert.False(t, containsLinks(reflect.ValueOf((*dynamicTarget)(nil))))
+		assert.False(t, containsLinks(reflect.ValueOf([]dynamicTarget{})))
+		assert.False(t, containsLinks(reflect.ValueOf(struct{}{})))
+
+		assert.True(t, emptyLink(reflect.ValueOf(storage.URN{})))
+		assert.False(t, emptyLink(reflect.ValueOf(testURN(t, "artifact", "00000000000000000001"))))
+		assert.True(t, emptyLink(reflect.ValueOf("")))
+		assert.False(t, emptyLink(reflect.ValueOf("value")))
+		assert.True(t, emptyLink(reflect.ValueOf([]string{})))
+		assert.False(t, emptyLink(reflect.ValueOf([1]string{"value"})))
+		assert.False(t, emptyLink(reflect.ValueOf(1)))
+		assert.True(t, hasLink(reflect.TypeOf(dynamicTarget{})))
+		assert.False(t, hasLink(reflect.TypeOf(struct{}{})))
+		assert.Nil(t, linkInfo(nil))
+	})
+
+	t.Run("scan types", func(t *testing.T) {
+		type recursive struct {
+			Child  *recursive
+			Target storage.URN `link:"artifact"`
+		}
+		assert.Equal(t, 1, scanLinks(reflect.TypeOf(recursive{}), nil))
+		assert.Equal(t, 1, scanLinks(reflect.TypeOf([]dynamicTarget{}), nil))
+		assert.Equal(t, 1, scanLinks(reflect.TypeOf(map[string]dynamicTarget{}), nil))
+		assert.Equal(t, 1, scanLinks(reflect.TypeOf((*interface{})(nil)).Elem(), nil))
+		assert.Zero(t, scanLinks(reflect.TypeOf(1), nil))
+
+		type fields struct {
+			Target  storage.URN `link:"artifact"`
+			Ignored string      `json:"-" link:"artifact"`
+			hidden  string
+			Plain   int
+		}
+		assert.Len(t, scanFields(reflect.TypeOf(fields{})), 1)
+	})
+
+	t.Run("walk values", func(t *testing.T) {
+		source := testURN(t, "app", "00000000000000000000")
+		var links []storage.Link
+		assert.NoError(t, walkLinks(reflect.ValueOf(1), nil, source, &links))
+		assert.NoError(t, walkLinks(reflect.ValueOf((*dynamicTarget)(nil)), nil, source, &links))
+		assert.NoError(t, walkLinks(reflect.Value{}, nil, source, &links))
+		assert.NoError(t, extractValue(reflect.ValueOf([]string{}), []byte("target"), source, "artifact", &links))
+		assert.ErrorContains(t, extractValue(reflect.ValueOf([]string{"bad"}), []byte("target"), source, "artifact", &links), "invalid link")
+		assert.ErrorContains(t, extractValue(reflect.ValueOf(map[string]string{"x": "bad"}), []byte("target"), source, "artifact", &links), "invalid link")
+	})
 }
 
 func BenchmarkLinks(b *testing.B) {

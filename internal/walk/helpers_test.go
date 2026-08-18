@@ -118,12 +118,23 @@ func TestIsEmpty(t *testing.T) {
 		value any
 		empty bool
 	}{
-		"nil pointer":      {value: (*string)(nil), empty: true},
-		"empty string":     {value: "", empty: true},
-		"non-empty string": {value: "x", empty: false},
-		"empty slice":      {value: []int{}, empty: true},
-		"zero int":         {value: 0, empty: true},
-		"non-zero int":     {value: 1, empty: false},
+		"nil pointer":       {value: (*string)(nil), empty: true},
+		"empty string":      {value: "", empty: true},
+		"non-empty string":  {value: "x", empty: false},
+		"empty slice":       {value: []int{}, empty: true},
+		"empty array":       {value: [2]int{}, empty: true},
+		"non-empty array":   {value: [2]int{0, 1}, empty: false},
+		"false":             {value: false, empty: true},
+		"true":              {value: true, empty: false},
+		"zero int":          {value: 0, empty: true},
+		"non-zero int":      {value: 1, empty: false},
+		"zero uint":         {value: uint(0), empty: true},
+		"non-zero uint":     {value: uint(1), empty: false},
+		"zero float":        {value: float64(0), empty: true},
+		"non-zero float":    {value: float64(1), empty: false},
+		"non-nil pointer":   {value: new(int), empty: false},
+		"non-nil interface": {value: any("value"), empty: false},
+		"zero struct":       {value: struct{ Value int }{}, empty: true},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {

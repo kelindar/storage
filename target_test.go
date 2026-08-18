@@ -52,4 +52,11 @@ func TestTarget(t *testing.T) {
 	require.Error(t, json.Unmarshal([]byte(`123`), &target))
 	_, err := json.Marshal(Target("not-a-target"))
 	require.Error(t, err)
+
+	data, err := json.Marshal(Target(""))
+	require.NoError(t, err)
+	assert.Equal(t, `""`, string(data))
+	var empty Target
+	require.NoError(t, json.Unmarshal([]byte(`""`), &empty))
+	assert.Empty(t, empty)
 }

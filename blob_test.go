@@ -30,6 +30,8 @@ func TestMemory(t *testing.T) {
 		require.NoError(t, files.Delete(t.Context(), "blobs/test"))
 		_, err = fs.ReadFile(&files, "blobs/test")
 		require.ErrorIs(t, err, fs.ErrNotExist)
+		_, err = files.Write(t.Context(), ".", []byte("invalid"))
+		require.ErrorIs(t, err, fs.ErrInvalid)
 	})
 
 	t.Run("canceledWrite", func(t *testing.T) {
@@ -71,6 +73,8 @@ func TestBlobJSON(t *testing.T) {
 	restored := decoded.(*storage.Blob)
 	require.Equal(t, value.ObjectKey, restored.ObjectKey)
 	require.Equal(t, value.Compression, restored.Compression)
+	assert.Equal(t, value.ID, value.Title())
+	assert.Equal(t, value.ContentType, value.Subtitle())
 }
 
 func TestStoreBlobLifecycle(t *testing.T) {
@@ -172,6 +176,23 @@ func TestBlobValidation(t *testing.T) {
 		_, err := store.Upload(context.Background(), storage.URN{Tenant: "acme", Namespace: "default"}, "image/png", []byte("not an image"))
 		require.ErrorContains(t, err, "does not match")
 	})
+	t.Run("invalidContentType", func(t *testing.T) {
+		_, err := store.Upload(t.Context(), storage.URN{Tenant: "acme", Namespace: "default"}, "not a media type", []byte("x"))
+		require.ErrorContains(t, err, "invalid content type")
+	})
+	t.Run("legacyContentType", func(t *testing.T) {
+		blob, err := store.Upload(t.Context(), storage.URN{Tenant: "acme", Namespace: "default"}, "application/vnd.noeti.document", []byte("x"))
+		require.NoError(t, err)
+		assert.Equal(t, storage.CompressionZstd, blob.Compression)
+	})
+	t.Run("rawContent", func(t *testing.T) {
+		blob, err := store.Upload(t.Context(), storage.URN{Tenant: "acme", Namespace: "default"}, "application/octet-stream", []byte{0, 1, 2})
+		require.NoError(t, err)
+		assert.Equal(t, storage.CompressionRaw, blob.Compression)
+		data, err := blob.Read(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, []byte{0, 1, 2}, data)
+	})
 	t.Run("textual application content", func(t *testing.T) {
 		_, err := store.Upload(t.Context(), storage.URN{Tenant: "acme", Namespace: "default"}, "application/yaml", []byte("name: Demo\n"))
 		require.NoError(t, err)
@@ -188,6 +209,21 @@ func TestBlobValidation(t *testing.T) {
 	t.Run("unconfigured", func(t *testing.T) {
 		_, err := storage.NewStore(backend, nil).Upload(t.Context(), storage.URN{Tenant: "acme", Namespace: "default"}, "text/plain", []byte("x"))
 		require.ErrorContains(t, err, "not configured")
+	})
+	t.Run("writeError", func(t *testing.T) {
+		files := &failingFiles{writeErr: assert.AnError}
+		store := storage.NewStore(backend, files)
+		_, err := store.Upload(t.Context(), storage.URN{Tenant: "acme", Namespace: "default"}, "text/plain", []byte("x"))
+		require.ErrorIs(t, err, assert.AnError)
+	})
+	t.Run("insertError", func(t *testing.T) {
+		files := &storage.Memory{}
+		wrapped := &insertErrorStorage{Storage: backend, err: assert.AnError}
+		store := storage.NewStore(wrapped, files)
+		_, err := store.Upload(t.Context(), storage.URN{Tenant: "acme", Namespace: "default"}, "text/plain", []byte("x"))
+		require.ErrorIs(t, err, assert.AnError)
+		_, err = fs.ReadFile(files, "blobs/acme/default/missing")
+		assert.Error(t, err)
 	})
 }
 
@@ -227,6 +263,18 @@ func TestBlobRead(t *testing.T) {
 		blob.Size = -1
 		_, err = blob.Read(t.Context())
 		require.ErrorContains(t, err, "invalid size metadata")
+
+		blob, err = storage.Fetch[*storage.Blob](t.Context(), store, created.URN())
+		require.NoError(t, err)
+		blob.Size = storage.MaxSize + 1
+		_, err = blob.Read(t.Context())
+		require.ErrorContains(t, err, "invalid size metadata")
+
+		blob, err = storage.Fetch[*storage.Blob](t.Context(), store, created.URN())
+		require.NoError(t, err)
+		blob.StoredSize = -1
+		_, err = blob.Read(t.Context())
+		require.ErrorContains(t, err, "invalid size metadata")
 	})
 
 	t.Run("storedSizeMismatch", func(t *testing.T) {
@@ -251,6 +299,22 @@ func TestBlobRead(t *testing.T) {
 		blob.SHA256 = hex.EncodeToString(sha256.New().Sum(nil))
 		_, err = blob.Read(t.Context())
 		require.ErrorContains(t, err, "checksum mismatch")
+	})
+
+	t.Run("missingContent", func(t *testing.T) {
+		blob, err := storage.Fetch[*storage.Blob](t.Context(), store, created.URN())
+		require.NoError(t, err)
+		blob.ObjectKey = "missing"
+		_, err = blob.Read(t.Context())
+		require.ErrorContains(t, err, "open content")
+	})
+
+	t.Run("unsupportedCompression", func(t *testing.T) {
+		blob, err := storage.Fetch[*storage.Blob](t.Context(), store, created.URN())
+		require.NoError(t, err)
+		blob.Compression = "unsupported"
+		_, err = blob.Read(t.Context())
+		require.ErrorContains(t, err, "unsupported compression")
 	})
 
 	t.Run("canceled", func(t *testing.T) {
@@ -321,6 +385,16 @@ func TestBlobRecover(t *testing.T) {
 type failingFiles struct {
 	storage.Memory
 	deleteErr error
+	writeErr  error
+}
+
+type insertErrorStorage struct {
+	storage.Storage
+	err error
+}
+
+func (s *insertErrorStorage) Insert(context.Context, storage.Object) (storage.Object, error) {
+	return nil, s.err
 }
 
 type blockingFiles struct {
@@ -345,6 +419,13 @@ func (f *blockingFiles) Delete(ctx context.Context, key string) error {
 }
 
 func (f *failingFiles) Open(key string) (fs.File, error) { return f.Memory.Open(key) }
+
+func (f *failingFiles) Write(ctx context.Context, key string, data []byte) (string, error) {
+	if f.writeErr != nil {
+		return "", f.writeErr
+	}
+	return f.Memory.Write(ctx, key, data)
+}
 
 func (f *failingFiles) Delete(ctx context.Context, key string) error {
 	if f.deleteErr != nil {

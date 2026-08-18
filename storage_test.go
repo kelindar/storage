@@ -3,6 +3,7 @@ package storage_test
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -308,6 +309,107 @@ func TestStorage(t *testing.T) {
 			assert.Equal(t, 10, count)
 		})
 	})
+}
+
+func TestStorageGuards(t *testing.T) {
+	db := sqlite.OpenEphemeral(newRegistry())
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	t.Run("constructors", func(t *testing.T) {
+		_, err := storage.New[*App]("acme", "default", func(*App) error {
+			return assert.AnError
+		})
+		assert.ErrorIs(t, err, assert.AnError)
+
+		_, err = storage.New[*invalidObject]("acme", "default")
+		assert.Error(t, err)
+		_, err = storage.NewByType(reflect.TypeOf(struct{}{}), "acme", "default")
+		assert.Error(t, err)
+		_, err = storage.Create[*App](t.Context(), db, func(*App) error { return assert.AnError }, "acme", "default")
+		assert.ErrorIs(t, err, assert.AnError)
+	})
+
+	app, err := storage.New[*App]("acme", "my_project")
+	require.NoError(t, err)
+	created, err := storage.Insert(t.Context(), db, app)
+	require.NoError(t, err)
+
+	t.Run("invalid operations", func(t *testing.T) {
+		_, err := storage.Insert(t.Context(), db, &invalidObject{Meta: storage.Meta{Tenant: "acme", Namespace: "default"}})
+		assert.Error(t, err)
+		_, err = storage.Upsert(t.Context(), db, &invalidObject{}, func(*invalidObject) error { return nil })
+		assert.Error(t, err)
+		_, err = storage.Search[*invalidObject](t.Context(), db, storage.Query{})
+		assert.Error(t, err)
+		_, err = storage.Count[*invalidObject](t.Context(), db, storage.Query{})
+		assert.Error(t, err)
+		_, err = storage.Next[*invalidObject](t.Context(), db)
+		assert.Error(t, err)
+	})
+
+	t.Run("patch guards", func(t *testing.T) {
+		_, err := storage.Patch[*App](t.Context(), db, created.URN(), nil)
+		assert.ErrorIs(t, err, storage.ErrInvalid)
+
+		_, err = storage.Patch[*App](t.Context(), db, storage.URN{Tenant: "acme", Namespace: "my_project", Kind: "app", ID: "00000000000000000000"}, func(*App) error {
+			return nil
+		})
+		assert.ErrorIs(t, err, storage.ErrNotFound)
+
+		_, err = storage.Patch[*App](t.Context(), db, created.URN(), func(*App) error {
+			return assert.AnError
+		})
+		assert.ErrorIs(t, err, assert.AnError)
+
+		_, err = storage.Patch[*App](t.Context(), db, created.URN(), func(current *App) error {
+			current.ID = "00000000000000000000"
+			return nil
+		})
+		assert.ErrorIs(t, err, storage.ErrInvalid)
+	})
+
+	t.Run("overwrite", func(t *testing.T) {
+		stale := *created
+		stale.State = "overwritten"
+		updated, err := storage.Overwrite(t.Context(), db, &stale)
+		require.NoError(t, err)
+		assert.Equal(t, "overwritten", updated.State)
+		assert.NotZero(t, updated.CreatedAt)
+	})
+
+	t.Run("search stops", func(t *testing.T) {
+		rows, err := storage.Search[*App](t.Context(), db, storage.Query{})
+		require.NoError(t, err)
+		for range rows {
+			break
+		}
+	})
+
+	t.Run("missing", func(t *testing.T) {
+		missing, err := storage.MakeURN("acme", "my_project", "app", "00000000000000000000")
+		require.NoError(t, err)
+		_, err = storage.Delete[*App](t.Context(), db, missing)
+		assert.ErrorIs(t, err, storage.ErrNotFound)
+		_, err = storage.Fetch[*App](t.Context(), db, missing)
+		assert.ErrorIs(t, err, storage.ErrNotFound)
+	})
+
+	t.Run("canceled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		_, err := storage.Insert(ctx, db, &App{Meta: storage.Meta{Tenant: "acme", Namespace: "default", Kind: "app"}})
+		assert.ErrorIs(t, err, context.Canceled)
+		_, err = storage.Update(ctx, db, created)
+		assert.ErrorIs(t, err, context.Canceled)
+		_, err = storage.Delete[*App](ctx, db, created.URN())
+		assert.ErrorIs(t, err, context.Canceled)
+		_, err = storage.Search[*App](ctx, db, storage.Query{})
+		assert.ErrorIs(t, err, context.Canceled)
+	})
+
+	var nilStore *storage.Store
+	nilStore.Start(t.Context(), nil)
+	assert.NoError(t, nilStore.Close())
 }
 
 func TestStatefulStorage(t *testing.T) {

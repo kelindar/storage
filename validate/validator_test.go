@@ -2,6 +2,7 @@ package validate
 
 import (
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -63,6 +64,45 @@ func TestValidate_Simple(t *testing.T) {
 	ok, err := Struct(car)
 	assert.True(t, ok)
 	assert.Nil(t, err)
+}
+
+func TestStructGuards(t *testing.T) {
+	valid, err := Struct(nil)
+	assert.True(t, valid)
+	assert.NoError(t, err)
+
+	for _, value := range []any{Employee{}, (*Employee)(nil), []int{}} {
+		valid, err = Struct(value)
+		assert.False(t, valid)
+		assert.Error(t, err)
+	}
+}
+
+func TestValidatorErrors(t *testing.T) {
+	type invalid struct {
+		Unknown string `is:"unknown"`
+		Broken  string `is:"broken(tag"`
+	}
+
+	valid, err := Struct(&invalid{Unknown: "value", Broken: "value"})
+	assert.False(t, valid)
+	assert.Error(t, err)
+
+	field := reflect.TypeOf(invalid{}).Field(0)
+	assert.Equal(t, "Unknown", nameOf(&field))
+	assert.Empty(t, nameOf(nil))
+	dash := reflect.StructField{Name: "Ignored", Tag: `json:"-"`}
+	assert.Empty(t, nameOf(&dash))
+
+	first := errorf(&field, []string{"value"}, "required", "bad")
+	second := errorf(&field, []string{"other"}, "min(1)", "bad")
+	combined := Errors{first, Errors{second}}
+	assert.Len(t, combined.Errors(), 2)
+	assert.Contains(t, combined.Error(), "bad")
+	assert.Equal(t, "renamed", withName(first, "renamed").(Error).Name)
+	assert.Equal(t, "renamed", withName(Errors{first}, "renamed").(Errors).Errors()[0].Name)
+	assert.Equal(t, assert.AnError, withName(assert.AnError, ""))
+	assert.False(t, func() bool { _, ok := lookup("missing"); return ok }())
 }
 
 func TestValidate_Errors(t *testing.T) {

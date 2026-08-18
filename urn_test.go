@@ -149,3 +149,11 @@ func TestEmptyURN(t *testing.T) {
 	assert.Empty(t, string(urn.Kind))
 	assert.Empty(t, urn.ID)
 }
+
+func TestURNJSONGuards(t *testing.T) {
+	var urn URN
+	assert.NoError(t, urn.UnmarshalJSON([]byte(`""`)))
+	assert.Empty(t, urn)
+	assert.Error(t, urn.UnmarshalJSON([]byte(`123`)))
+	assert.Error(t, urn.UnmarshalJSON([]byte(`"not-a-urn"`)))
+}

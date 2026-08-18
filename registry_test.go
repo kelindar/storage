@@ -60,12 +60,52 @@ func TestRegistry(t *testing.T) {
 	})
 }
 
+func TestRegistryGuards(t *testing.T) {
+	registry := NewRegistry()
+	_, err := registry.Resolve("missing")
+	assert.ErrorIs(t, err, ErrKindNotFound)
+
+	assert.Panics(t, func() { MustRegister[*invalidResource](registry) })
+
+	type noMeta struct{}
+	type noKind struct{ Meta }
+	type badMeta struct{ Meta string }
+	type badKind struct {
+		Meta `kind:"1bad"`
+	}
+	for _, typ := range []reflect.Type{
+		reflect.TypeOf(noMeta{}), reflect.TypeOf(noKind{}), reflect.TypeOf(badMeta{}), reflect.TypeOf(badKind{}),
+	} {
+		_, err := KindOf(typ)
+		assert.Error(t, err)
+	}
+
+	tests := []struct {
+		field  reflect.StructField
+		name   string
+		inline bool
+	}{
+		{field: reflect.StructField{Name: "Field", Tag: `json:"name"`}, name: "name"},
+		{field: reflect.StructField{Name: "Field", Tag: `json:",inline"`}, inline: true},
+		{field: reflect.StructField{Name: "Field", Tag: `json:"-"`}},
+	}
+	for _, tc := range tests {
+		name, inline := jsonName(tc.field)
+		assert.Equal(t, tc.name, name)
+		assert.Equal(t, tc.inline, inline)
+	}
+}
+
 // ---------------------------------- Test Types ----------------------------------
 
 type Kind1 struct {
 	Meta `kind:"kind1" json:",inline"`
 	Name string `json:"name"`
 	Link URN    `json:"link"`
+}
+
+type invalidResource struct {
+	Meta
 }
 
 type Kind2 struct {

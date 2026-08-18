@@ -91,6 +91,9 @@ func TestIsExistingEmail(t *testing.T) {
 		"short email":            {input: "a@localhost", expected: true},
 		"long email":             {input: strings.Repeat("a", 65) + "@example.com", expected: false},
 		"email with invalid TLD": {input: "test@example.invalidtld", expected: false},
+		"missing user":           {input: "@example.com", expected: false},
+		"missing host":           {input: "user@", expected: false},
+		"short host":             {input: "user@x", expected: false},
 	}
 
 	for name, tc := range tests {
@@ -114,6 +117,9 @@ func TestIsURL(t *testing.T) {
 		"URL starts with dot":   {input: ".example.com", expected: false},
 		"URL with invalid host": {input: "http://", expected: false},
 		"URL with port":         {input: "http://example.com:8080", expected: true},
+		"bare port":             {input: "example.com:8080", expected: true},
+		"host starts with dot":  {input: "http://.example.com", expected: false},
+		"hostless name":         {input: "example", expected: false},
 		"URL with path":         {input: "http://example.com/path", expected: true},
 		"URL with query":        {input: "http://example.com?query=1", expected: true},
 		"URL with fragment":     {input: "http://example.com#section", expected: true},
@@ -1589,6 +1595,11 @@ func TestIsTiger160(t *testing.T) {
 			assert.Equal(t, tc.expected, result)
 		})
 	}
+}
+
+func TestIsTiger128(t *testing.T) {
+	assert.True(t, IsTiger128("0123456789abcdef0123456789abcdef"))
+	assert.False(t, IsTiger128("short"))
 }
 
 func TestIsRipeMD160(t *testing.T) {
