@@ -1,5 +1,3 @@
-# Typed Object Storage for Go
-
 <p align="center">
     <img width="300" height="100" src=".github/logo.png" border="0" alt="kelindar/roaring">
     <br>
@@ -8,6 +6,8 @@
     <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License"></a>
     <a href="https://coveralls.io/github/kelindar/storage"><img src="https://coveralls.io/repos/github/kelindar/storage/badge.svg" alt="Coverage"></a>
 </p>
+
+# Typed Object Storage for Go
 
 This is a small, typed resource store for Go. It keeps application objects as JSON documents in SQLite or PostgreSQL and covers the pieces that tend to get rebuilt in every service: queries, links, optimistic updates, locks, change feeds, sequences, lifecycle state, validation, and blobs.
 
