@@ -313,7 +313,7 @@ The fields cover the common cases:
 - `States` filters lifecycle states.
 - `Indexes` filters the value returned by an optional `Index() string` method.
 - `Filters` compare JSON paths.
-- `Match` performs full-text or substring matching, depending on the driver.
+- `Match` performs full-text or substring matching, depending on the driver. An optional `SearchBy() []string` method selects JSON paths to search; resources without it use their serialized data, while an empty result is not indexed.
 - `SortBy` accepts `+field` for ascending and `-field` for descending order.
 - `Offset` and `Limit` page the results.
 - `CreatedBefore`, `UpdatedBefore`, and `UpdatedAfter` apply time bounds.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -442,7 +443,7 @@ func TestExpirationMigration(t *testing.T) {
 
 	registry := storage.NewRegistry()
 	storage.MustRegister[*App](registry)
-	require.NoError(t, autoMigrate(db, registry))
+	require.NoError(t, autoMigrate(db, registry, searchConfigs(registry)))
 
 	var columnCount int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('app') WHERE name = 'expires_at' AND "notnull" = 1 AND dflt_value = '0'`).Scan(&columnCount))
@@ -450,6 +451,98 @@ func TestExpirationMigration(t *testing.T) {
 	var indexCount int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'app_idx_expiration'`).Scan(&indexCount))
 	assert.Equal(t, 1, indexCount)
+}
+
+func TestSearchByStorage(t *testing.T) {
+	registry := storage.NewRegistry()
+	storage.MustRegister[*SearchApp](registry)
+
+	path := filepath.Join(t.TempDir(), "text.db")
+	db, err := Open(path, registry)
+	require.NoError(t, err)
+	first := db.(*rds)
+	t.Cleanup(func() { require.NoError(t, first.Close()) })
+	var searchTextCount int
+	require.NoError(t, first.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('search_app') WHERE name = 'search_text'`).Scan(&searchTextCount))
+	assert.Zero(t, searchTextCount)
+
+	app, err := storage.New[*SearchApp]("acme", "default")
+	require.NoError(t, err)
+	app.Indexed = "visible phrase"
+	app.Hidden = "private phrase"
+	created, err := storage.Insert[*SearchApp](t.Context(), db, app)
+	require.NoError(t, err)
+
+	if first.fts5 {
+		var indexed string
+		require.NoError(t, first.db.QueryRow(`SELECT data FROM "search_app_fts" WHERE id = ?`, created.ID).Scan(&indexed))
+		assert.Equal(t, "visible phrase", indexed)
+	}
+	assert.Len(t, searchApps(t, db, "visible"), 1)
+	assert.Empty(t, searchApps(t, db, "private"))
+
+	created.Indexed = "updated phrase"
+	updated, err := storage.Update[*SearchApp](t.Context(), db, created)
+	require.NoError(t, err)
+	assert.Empty(t, searchApps(t, db, "visible"))
+	assert.Len(t, searchApps(t, db, "updated"), 1)
+
+	require.NoError(t, db.Close())
+	db, err = Open(path, registry)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	assert.Len(t, searchApps(t, db, "updated"), 1)
+
+	reloaded, err := storage.Fetch[*SearchApp](t.Context(), db, updated.URN())
+	require.NoError(t, err)
+	reloaded.Indexed = ""
+	reloaded.Hidden = "empty text must not be searchable"
+	_, err = storage.Update[*SearchApp](t.Context(), db, reloaded)
+	require.NoError(t, err)
+	assert.Empty(t, searchApps(t, db, "updated"))
+	assert.Empty(t, searchApps(t, db, "empty"))
+
+	reloaded, err = storage.Fetch[*SearchApp](t.Context(), db, updated.URN())
+	require.NoError(t, err)
+	reloaded.Indexed = "delete phrase"
+	_, err = storage.Update[*SearchApp](t.Context(), db, reloaded)
+	require.NoError(t, err)
+	assert.Len(t, searchApps(t, db, "delete"), 1)
+	_, err = storage.Delete[*SearchApp](t.Context(), db, reloaded.URN())
+	require.NoError(t, err)
+	assert.Empty(t, searchApps(t, db, "delete"))
+}
+
+func TestSearchByMigration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "migration.db")
+
+	legacyRegistry := storage.NewRegistry()
+	storage.MustRegister[*LegacySearchApp](legacyRegistry)
+	legacy, err := Open(path, legacyRegistry)
+	require.NoError(t, err)
+	legacyApp, err := storage.New[*LegacySearchApp]("acme", "default")
+	require.NoError(t, err)
+	legacyApp.Indexed = "visible phrase"
+	legacyApp.Hidden = "private phrase"
+	_, err = storage.Insert[*LegacySearchApp](t.Context(), legacy, legacyApp)
+	require.NoError(t, err)
+	require.NoError(t, legacy.Close())
+
+	registry := storage.NewRegistry()
+	storage.MustRegister[*SearchApp](registry)
+	db, err := Open(path, registry)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	assert.Len(t, searchApps(t, db, "visible"), 1)
+	assert.Empty(t, searchApps(t, db, "private"))
+}
+
+func searchApps(t *testing.T, db storage.Storage, match string) []*SearchApp {
+	t.Helper()
+	results, err := storage.Search[*SearchApp](t.Context(), db, storage.Query{Tenant: "acme", Match: match})
+	require.NoError(t, err)
+	return storage.Collect(results, nil)
 }
 
 func TestSanitizeTerm(t *testing.T) {
@@ -572,11 +665,11 @@ func targetURN(t *testing.T, tenant string, kind storage.Kind, id string) storag
 }
 
 func TestMatchLikeClause(t *testing.T) {
-	clause, args := matchLikeClause("Sim")
+	clause, args := matchLikeClause("data", "Sim")
 	assert.Equal(t, "CAST(data AS TEXT) LIKE ? ESCAPE '\\'", clause)
 	assert.Equal(t, []any{"%Sim%"}, args)
 
-	clause, args = matchLikeClause("appli 47")
+	clause, args = matchLikeClause("data", "appli 47")
 	assert.Equal(t, "CAST(data AS TEXT) LIKE ? ESCAPE '\\' AND CAST(data AS TEXT) LIKE ? ESCAPE '\\'", clause)
 	assert.Equal(t, []any{"%appli%", "%47%"}, args)
 }
@@ -612,6 +705,20 @@ type App struct {
 	References   map[string]storage.URN `json:"references,omitempty" link:"artifact"`
 	Reverse      storage.URN            `json:"reverse"`
 	Extra        storage.URN            `json:"extra"`
+}
+
+type SearchApp struct {
+	storage.Meta `kind:"search_app" json:",inline"`
+	Indexed      string `json:"indexed"`
+	Hidden       string `json:"hidden"`
+}
+
+func (*SearchApp) SearchBy() []string { return []string{"indexed"} }
+
+type LegacySearchApp struct {
+	storage.Meta `kind:"search_app" json:",inline"`
+	Indexed      string `json:"indexed"`
+	Hidden       string `json:"hidden"`
 }
 
 type Owner struct {

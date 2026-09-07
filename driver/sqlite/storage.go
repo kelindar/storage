@@ -19,6 +19,7 @@ type Record = storage.Object
 type rds struct {
 	db       *sql.DB
 	registry storage.Registry
+	search   map[storage.Kind]searchConfig
 	leases   *leaser
 	fts5     bool
 }
@@ -29,12 +30,13 @@ func Open(dsn string, registry storage.Registry) (storage.Storage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("storage: unable to open database: %w", err)
 	}
+	configs := searchConfigs(registry)
 
 	// Set max open connections for SQLite (as SQLite is not designed for many concurrent writes)
 	db.SetMaxOpenConns(1)
 
 	// Auto-create the tables
-	if err := autoMigrate(db, registry); err != nil {
+	if err := autoMigrate(db, registry, configs); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -43,6 +45,7 @@ func Open(dsn string, registry storage.Registry) (storage.Storage, error) {
 	return &rds{
 		db:       db,
 		registry: registry,
+		search:   configs,
 		fts5:     fts5Enabled(db),
 		leases:   &leaser{db: db, life: ctx, cancel: cancel, timing: defaultLockTiming},
 	}, nil
@@ -257,7 +260,7 @@ func (s *rds) matchWhere(kind storage.Kind, match string, defaultSort bool, wher
 		return ""
 	}
 	if !s.fts5 {
-		if clause, likeArgs := matchLikeClause(match); clause != "" {
+		if clause, likeArgs := matchLikeClause(searchExpression("data", s.search[kind]), match); clause != "" {
 			*where = append(*where, clause)
 			*args = append(*args, likeArgs...)
 		}
@@ -348,7 +351,7 @@ func queryFilterByJSON(path string, values []string) (string, []any) {
 }
 
 // matchLikeClause builds a case-insensitive JSON substring match for each token.
-func matchLikeClause(query string) (string, []any) {
+func matchLikeClause(expression, query string) (string, []any) {
 	tokens := strings.Fields(strings.TrimSpace(query))
 	if len(tokens) == 0 {
 		return "", nil
@@ -357,7 +360,7 @@ func matchLikeClause(query string) (string, []any) {
 	parts := make([]string, len(tokens))
 	args := make([]any, len(tokens))
 	for i, token := range tokens {
-		parts[i] = "CAST(data AS TEXT) LIKE ? ESCAPE '\\'"
+		parts[i] = "CAST(" + expression + " AS TEXT) LIKE ? ESCAPE '\\'"
 		args[i] = "%" + escapeLike(token) + "%"
 	}
 	return strings.Join(parts, " AND "), args

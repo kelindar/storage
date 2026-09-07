@@ -19,6 +19,7 @@ type Record = storage.Object
 type rds struct {
 	db       *database
 	registry storage.Registry
+	search   map[storage.Kind]searchConfig
 	leases   *leaser
 	own      bool
 }
@@ -55,6 +56,7 @@ func newStore(db *database, registry storage.Registry, own bool) (storage.Storag
 	return &rds{
 		db:       db,
 		registry: registry,
+		search:   searchConfigs(registry),
 		leases:   &leaser{db: db, life: ctx, cancel: cancel, timing: defaultLockTiming},
 		own:      own,
 	}, nil
@@ -259,12 +261,11 @@ func queryScope(q storage.Query) ([]string, []any) {
 }
 
 func (s *rds) matchWhere(kind storage.Kind, match string, defaultSort bool, where *[]string, args *[]any) string {
-	_ = kind
 	_ = defaultSort
 	if match == "" {
 		return ""
 	}
-	if clause, likeArgs := matchLikeClause(match); clause != "" {
+	if clause, likeArgs := matchLikeClause(searchExpression("data", s.search[kind]), match); clause != "" {
 		*where = append(*where, clause)
 		*args = append(*args, likeArgs...)
 	}
@@ -346,7 +347,7 @@ func queryFilterByJSON(path string, values []string) (string, []any) {
 }
 
 // matchLikeClause builds a case-insensitive JSON substring match for each token.
-func matchLikeClause(query string) (string, []any) {
+func matchLikeClause(expression, query string) (string, []any) {
 	tokens := strings.Fields(strings.TrimSpace(query))
 	if len(tokens) == 0 {
 		return "", nil
@@ -355,7 +356,7 @@ func matchLikeClause(query string) (string, []any) {
 	parts := make([]string, len(tokens))
 	args := make([]any, len(tokens))
 	for i, token := range tokens {
-		parts[i] = "CAST(data AS TEXT) ILIKE ? ESCAPE '\\'"
+		parts[i] = expression + " ILIKE ? ESCAPE '\\'"
 		args[i] = "%" + escapeLike(token) + "%"
 	}
 	return strings.Join(parts, " AND "), args

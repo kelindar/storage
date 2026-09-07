@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/kelindar/storage"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestStorageGuards(t *testing.T) {
@@ -37,13 +38,19 @@ func TestStorageGuards(t *testing.T) {
 	if clause, args := queryFilterByJSON("tenant", []string{"acme"}); clause == "" || len(args) != 1 {
 		t.Fatalf("tenant filter = %q, %v", clause, args)
 	}
-	if clause, args := matchLikeClause("a% b_"); clause == "" || len(args) != 2 {
+	if clause, args := matchLikeClause("data::text", "a% b_"); clause == "" || len(args) != 2 {
 		t.Fatalf("match clause = %q, %v", clause, args)
 	}
-	if clause, _ := matchLikeClause(" "); clause != "" {
+	if clause, _ := matchLikeClause("data::text", " "); clause != "" {
 		t.Fatal("blank match produced a clause")
 	}
 	if got := escapeLike(`a%b_c\d`); got != `a\%b\_c\\d` {
 		t.Fatalf("escapeLike = %q", got)
 	}
+}
+
+func TestMatchLikeClause(t *testing.T) {
+	clause, args := matchLikeClause("data::text", "secret")
+	assert.Equal(t, "data::text ILIKE ? ESCAPE '\\'", clause)
+	assert.Equal(t, []any{"%secret%"}, args)
 }

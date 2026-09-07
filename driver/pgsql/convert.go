@@ -85,7 +85,7 @@ func metaOf(v Record) *storage.Meta {
 	return reflect.ValueOf(v).Elem().FieldByIndex(info.index).Addr().Interface().(*storage.Meta)
 }
 
-// ---------------------------------- Text ----------------------------------
+// ---------------------------------- Search ----------------------------------
 
 var (
 	matchFirst = regexp.MustCompile("(.)([A-Z][a-z]+)")
@@ -116,4 +116,51 @@ func indexOf(r Record) string {
 	}
 
 	return ""
+}
+
+type searchConfig struct {
+	paths    []string
+	selected bool
+}
+
+func searchConfigOf(typ storage.Type) searchConfig {
+	instance := reflect.New(typ.Type).Interface()
+	searcher, ok := instance.(interface {
+		SearchBy() []string
+	})
+	if !ok {
+		return searchConfig{}
+	}
+
+	config := searchConfig{selected: true}
+	for _, path := range searcher.SearchBy() {
+		if path != "" {
+			config.paths = append(config.paths, path)
+		}
+	}
+	return config
+}
+
+func searchConfigs(registry storage.Registry) map[storage.Kind]searchConfig {
+	configs := make(map[storage.Kind]searchConfig)
+	for typ := range registry.Types() {
+		configs[typ.Kind] = searchConfigOf(typ)
+	}
+	return configs
+}
+
+func searchExpression(column string, config searchConfig) string {
+	if !config.selected {
+		return column + "::text"
+	}
+	if len(config.paths) == 0 {
+		return "''"
+	}
+
+	parts := make([]string, len(config.paths))
+	for i, path := range config.paths {
+		path = strings.ReplaceAll(path, `'`, `''`)
+		parts[i] = "COALESCE(" + column + " #>> string_to_array('" + path + "', '.'), '')"
+	}
+	return "(" + strings.Join(parts, " || ' ' || ") + ")"
 }

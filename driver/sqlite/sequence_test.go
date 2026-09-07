@@ -180,7 +180,8 @@ func TestSequence(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, raw.Close()) })
 
-		require.NoError(t, autoMigrate(raw, storage.NewRegistry()))
+		registry := storage.NewRegistry()
+		require.NoError(t, autoMigrate(raw, registry, searchConfigs(registry)))
 
 		var count int
 		require.NoError(t, raw.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sequences'`).Scan(&count))
