@@ -5,7 +5,7 @@ go 1.27.0
 require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/kelindar/async v1.6.0
-	github.com/kelindar/storage v0.10.1-0.20260908061327-0df948fd42a4
+	github.com/kelindar/storage v0.11.0
 	github.com/rs/xid v1.6.0
 	github.com/stretchr/testify v1.11.1
 	github.com/zeebo/xxh3 v1.0.2
