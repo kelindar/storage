@@ -14,6 +14,57 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestSelection(t *testing.T) {
+	testStorage(func(db storage.Storage, _ storage.Registry) {
+		for i, row := range []struct{ tenant, namespace, name string }{
+			{"acme", "whole", "A"}, {"acme", "whole", "B"},
+			{"acme", "shared", "C"}, {"acme", "shared", "D"},
+			{"other", "whole", "E"}, {"other", "shared", "F"},
+		} {
+			app, err := storage.New[*App](row.tenant, row.namespace)
+			require.NoError(t, err)
+			app.ID, app.Name = fmt.Sprintf("%020d", i+1), row.name
+			_, err = db.Insert(t.Context(), app)
+			require.NoError(t, err)
+		}
+		selection := map[string][]string{
+			"whole":  nil,
+			"shared": {"00000000000000000003", "00000000000000000003", "00000000000000000006"},
+		}
+		for _, tc := range []struct {
+			name string
+			q    storage.Query
+			want []string
+		}{
+			{"unrestricted", storage.Query{}, []string{"A", "B", "C", "D"}},
+			{"empty", storage.Query{Selection: map[string][]string{}}, []string{}},
+			{"empty IDs", storage.Query{Selection: map[string][]string{"whole": {}}}, []string{}},
+			{"union and duplicates", storage.Query{Selection: selection}, []string{"A", "B", "C"}},
+			{"wrong namespace", storage.Query{Selection: map[string][]string{"whole": {"00000000000000000003"}}}, []string{}},
+			{"literal wildcard", storage.Query{Selection: map[string][]string{"*": nil}}, []string{}},
+			{"namespaces", storage.Query{Selection: selection, Namespaces: []string{"shared"}}, []string{"C"}},
+			{"IDs", storage.Query{Selection: selection, IDs: []string{"00000000000000000002", "00000000000000000004"}}, []string{"B"}},
+			{"filter", storage.Query{Selection: selection, Filters: map[string][]string{"name": {"B", "D"}}}, []string{"B"}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				tc.q.Tenant = "acme"
+				count, err := db.Count(t.Context(), "app", tc.q)
+				require.NoError(t, err)
+				assert.Equal(t, len(tc.want), count)
+				tc.q.SortBy = []string{"name"}
+				results, err := db.Search(t.Context(), "app", tc.q)
+				require.NoError(t, err)
+				assert.Equal(t, tc.want, appNames(storage.Collect(results, nil)))
+			})
+		}
+		results, err := db.Search(t.Context(), "app", storage.Query{
+			Tenant: "acme", Selection: selection, SortBy: []string{"-name"}, Offset: 1, Limit: 1,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"B"}, appNames(storage.Collect(results, nil)))
+	})
+}
+
 func TestSQLite(t *testing.T) {
 	t.Run("cancels reads and scans", func(t *testing.T) {
 		testStorage(func(db storage.Storage, _ storage.Registry) {
