@@ -1,6 +1,6 @@
 module github.com/kelindar/storage/driver/sqlite
 
-go 1.25.0
+go 1.27.0
 
 require (
 	github.com/kelindar/async v1.6.0

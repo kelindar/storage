@@ -1,11 +1,11 @@
 module github.com/kelindar/storage/bench
 
-go 1.25.0
+go 1.27.0
 
 require (
 	github.com/kelindar/bench v0.3.2
-	github.com/kelindar/storage v0.0.0
-	github.com/kelindar/storage/driver/sqlite v0.0.0
+	github.com/kelindar/storage v0.10.1-0.20260908061327-0df948fd42a4
+	github.com/kelindar/storage/driver/sqlite v0.10.0
 	github.com/rs/xid v1.6.0
 )
 
