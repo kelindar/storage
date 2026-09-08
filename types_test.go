@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"net/url"
 	"reflect"
 	"testing"
 	"time"
@@ -9,6 +10,27 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestQuerySelection(t *testing.T) {
+	for _, selection := range []map[string][]string{
+		nil, {}, {"all": nil, "none": {}, "exact": {"a", "a", "b"}},
+		{"semi;colon": {"comma,equals=percent%plus+quote\""}, "": {"*"}},
+	} {
+		q := Query{Selection: selection}
+		parsed, err := ParseQuery(q.String(), nil, Query{})
+		require.NoError(t, err)
+		assert.Equal(t, selection, parsed.Selection)
+	}
+	for _, raw := range []string{"", "%xx", "[]", "{", `{"ns":[1]}`, `{"ns":"id"}`} {
+		_, err := ParseQuery("selection="+raw, nil, Query{})
+		assert.Error(t, err)
+	}
+	original := map[string][]string{"keep": {"id"}}
+	parsed, err := ParseQuery("selection="+url.QueryEscape(`{"new":null}`), nil, Query{Selection: original})
+	require.NoError(t, err)
+	assert.Equal(t, map[string][]string{"keep": {"id"}}, original)
+	assert.Equal(t, map[string][]string{"new": nil}, parsed.Selection)
+}
 
 func TestEmbed(t *testing.T) {
 	r := newRegistry()

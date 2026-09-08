@@ -319,6 +319,20 @@ The fields cover the common cases:
 - `Offset` and `Limit` page the results.
 - `CreatedBefore`, `UpdatedBefore`, and `UpdatedAfter` apply time bounds.
 
+`Selection` unions whole namespaces and exact namespace/ID pairs, then intersects
+them with every other filter. Both drivers apply it within the same SQL query:
+
+```go
+query.Selection = map[string][]string{
+	"team":   nil,                         // All records in team.
+	"shared": {"d92il9hhq4uhlo6a5ucg"},   // Only this record in shared.
+}
+```
+
+A nil map adds no restriction; an empty map matches nothing. Within the map,
+nil IDs select the whole namespace and empty IDs select nothing. Names and IDs
+are literal. Keep the map and slices unchanged during `Search` or `Count`.
+
 A filter with a value is an equality check. An empty value means “present and non-zero”: the field must exist and must not be empty, zero, or false. Nested fields can be addressed with paths such as `profile.email`.
 
 `Search` returns an iterator. `Collect` drains it into a slice, while `Select` drains it and projects another value:
@@ -360,7 +374,7 @@ query, err := storage.ParseQuery(
 )
 ```
 
-The supported components are `tenant`, `id`, `namespace`, `state`, `index`, `filter`, `match`, `sort`, `limit`, `offset`, and `updatedAfter`. Multiple IDs, namespaces, states, and indexes are comma-separated. `namespace=*` removes the namespace restriction.
+The supported components are `tenant`, `id`, `namespace`, `selection`, `state`, `index`, `filter`, `match`, `sort`, `limit`, `offset`, and `updatedAfter`. Multiple IDs, namespaces, states, and indexes are comma-separated. `namespace=*` removes the namespace restriction. `selection` is URL-escaped JSON, emitted by `Query.String()`, which preserves nil and empty ID lists.
 
 `match` can substitute fields from the supplied object with `{FieldName}`. Substitutions support strings, integers, floats, and booleans. Filters use `field:value` for equality or just `field` for existence. `Query.String()` produces a compact representation for logging and transport.
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"net/url"
 	"reflect"
 	"regexp"
 	"slices"
@@ -201,6 +202,13 @@ type Query struct {
 	CreatedBefore time.Time           // CreatedBefore filters records created before this time
 	UpdatedBefore time.Time           // UpdatedBefore filters records updated before this time
 	UpdatedAfter  time.Time           // UpdatedAfter filters records updated after this time
+
+	// Selection unions exact namespaces and their IDs, intersecting all other filters.
+	// A nil map is unrestricted; an empty map matches nothing. A nil ID slice
+	// selects the whole namespace; an empty slice selects nothing. No wildcards
+	// are interpreted. The caller owns the map and slices and must not modify
+	// them during Search or Count. Tenant and kind retain their existing scope.
+	Selection map[string][]string
 }
 
 // String returns the string representation of the query.
@@ -215,12 +223,16 @@ func (q *Query) String() string {
 }
 
 func (q *Query) empty() bool {
-	return q.Tenant == "" && len(q.IDs) == 0 && len(q.Namespaces) == 0 && len(q.States) == 0 && len(q.Indexes) == 0 && len(q.Filters) == 0 &&
+	return q.Selection == nil && q.Tenant == "" && len(q.IDs) == 0 && len(q.Namespaces) == 0 && len(q.States) == 0 && len(q.Indexes) == 0 && len(q.Filters) == 0 &&
 		q.Match == "" && len(q.SortBy) == 0 && q.Offset == 0 && q.Limit == 0 &&
 		q.CreatedBefore.IsZero() && q.UpdatedBefore.IsZero() && q.UpdatedAfter.IsZero()
 }
 
 func (q *Query) writeString(out *strings.Builder) {
+	if q.Selection != nil {
+		data, _ := json.Marshal(q.Selection)
+		out.WriteString("selection=" + url.QueryEscape(string(data)) + ";")
+	}
 	if q.Tenant != "" {
 		out.WriteString("tenant=")
 		out.WriteString(q.Tenant)
@@ -376,6 +388,17 @@ func parseQueryToken(component string, query *Query, object any) error {
 	switch {
 	case component == "":
 		return nil // Skip empty components
+	case strings.HasPrefix(component, "selection="):
+		data, err := url.QueryUnescape(strings.TrimPrefix(component, "selection="))
+		if err != nil {
+			return fmt.Errorf("query: invalid selection: %w", err)
+		}
+		var selection map[string][]string
+		if err := json.Unmarshal([]byte(data), &selection); err != nil {
+			return fmt.Errorf("query: invalid selection: %w", err)
+		}
+		query.Selection = selection
+		return nil
 	case tenantRegex.MatchString(component):
 		return parseTenant(component, query)
 	case idRegex.MatchString(component):

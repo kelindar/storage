@@ -189,6 +189,9 @@ func (s *rds) query(ctx context.Context, projection string, kind storage.Kind, q
 
 func queryWhere(q storage.Query) ([]string, []any) {
 	where, args := queryScope(q)
+	if q.Selection != nil {
+		where = append(where, querySelection(q.Selection, &args))
+	}
 	switch {
 	case q.Namespaces == nil:
 	case len(q.Namespaces) == 0:
@@ -239,6 +242,28 @@ func queryWhere(q storage.Query) ([]string, []any) {
 		}
 	}
 	return where, args
+}
+
+func querySelection(selection map[string][]string, args *[]any) string {
+	parts := make([]string, 0, len(selection))
+	for namespace, ids := range selection {
+		if ids != nil && len(ids) == 0 {
+			continue
+		}
+		*args = append(*args, namespace)
+		clause := "namespace = ?"
+		if ids != nil {
+			clause += " AND id IN (" + strings.Repeat("?,", len(ids)-1) + "?)"
+			for _, id := range ids {
+				*args = append(*args, id)
+			}
+		}
+		parts = append(parts, "("+clause+")")
+	}
+	if len(parts) == 0 {
+		return "1 = 0"
+	}
+	return "(" + strings.Join(parts, " OR ") + ")"
 }
 
 func queryScope(q storage.Query) ([]string, []any) {
