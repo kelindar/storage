@@ -43,6 +43,7 @@ func TestRegistry(t *testing.T) {
 		typ, err := registry.Resolve("kind1")
 		assert.NoError(t, err)
 		assert.Equal(t, reflect.TypeFor[Kind1](), typ.Type)
+		assert.Equal(t, []string{"link"}, typ.SearchPaths)
 	})
 
 	t.Run("registerInvalid", func(t *testing.T) {
@@ -103,7 +104,7 @@ func TestRegistryGuards(t *testing.T) {
 type Kind1 struct {
 	Meta `kind:"kind1" json:",inline"`
 	Name string `json:"name"`
-	Link URN    `json:"link"`
+	Link URN    `json:"link" search:"-"`
 }
 
 type invalidResource struct {
