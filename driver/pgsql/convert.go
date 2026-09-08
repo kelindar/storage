@@ -125,9 +125,7 @@ type searchConfig struct {
 
 func searchConfigOf(typ storage.Type) searchConfig {
 	instance := reflect.New(typ.Type).Interface()
-	searcher, ok := instance.(interface {
-		SearchBy() []string
-	})
+	searcher, ok := instance.(storage.SearchIndexer)
 	if !ok {
 		return searchConfig{}
 	}
