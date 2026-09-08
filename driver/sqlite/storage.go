@@ -259,8 +259,9 @@ func (s *rds) matchWhere(kind storage.Kind, match string, defaultSort bool, wher
 	if match == "" {
 		return ""
 	}
-	if !s.fts5 {
-		if clause, likeArgs := matchLikeClause(searchExpression("data", s.search[kind]), match); clause != "" {
+	config := s.search[kind]
+	if !s.fts5 || !config.fts {
+		if clause, likeArgs := matchLikeClause(searchExpression("data", config.paths), match); clause != "" {
 			*where = append(*where, clause)
 			*args = append(*args, likeArgs...)
 		}

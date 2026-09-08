@@ -453,9 +453,9 @@ func TestExpirationMigration(t *testing.T) {
 	assert.Equal(t, 1, indexCount)
 }
 
-func TestSearchByStorage(t *testing.T) {
+func TestSearchTagStorage(t *testing.T) {
 	registry := storage.NewRegistry()
-	storage.MustRegister[*SearchApp](registry)
+	storage.MustRegister[*SearchApp](registry, storage.Options{Search: true})
 
 	path := filepath.Join(t.TempDir(), "text.db")
 	db, err := Open(path, registry)
@@ -476,7 +476,8 @@ func TestSearchByStorage(t *testing.T) {
 	if first.fts5 {
 		var indexed string
 		require.NoError(t, first.db.QueryRow(`SELECT data FROM "search_app_fts" WHERE id = ?`, created.ID).Scan(&indexed))
-		assert.Equal(t, "visible phrase", indexed)
+		assert.Contains(t, indexed, "visible phrase")
+		assert.NotContains(t, indexed, "private phrase")
 	}
 	assert.Len(t, searchApps(t, db, "visible"), 1)
 	assert.Empty(t, searchApps(t, db, "private"))
@@ -499,7 +500,7 @@ func TestSearchByStorage(t *testing.T) {
 	reloaded.Hidden = "empty text must not be searchable"
 	_, err = storage.Update[*SearchApp](t.Context(), db, reloaded)
 	require.NoError(t, err)
-	assert.Empty(t, searchApps(t, db, "updated"))
+	assert.Empty(t, searchApps(t, db, "updated phrase"))
 	assert.Empty(t, searchApps(t, db, "empty"))
 
 	reloaded, err = storage.Fetch[*SearchApp](t.Context(), db, updated.URN())
@@ -513,11 +514,52 @@ func TestSearchByStorage(t *testing.T) {
 	assert.Empty(t, searchApps(t, db, "delete"))
 }
 
-func TestSearchByMigration(t *testing.T) {
+func TestFTSOption(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "options.db")
+
+	enabledRegistry := storage.NewRegistry()
+	storage.MustRegister[*SearchApp](enabledRegistry, storage.Options{Search: true})
+	enabled, err := Open(path, enabledRegistry)
+	require.NoError(t, err)
+	first := enabled.(*rds)
+	assert.True(t, first.search["search_app"].fts)
+
+	var tableCount int
+	require.NoError(t, first.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'search_app_fts'`).Scan(&tableCount))
+	if first.fts5 {
+		assert.Equal(t, 1, tableCount)
+	} else {
+		assert.Zero(t, tableCount)
+	}
+
+	app, err := storage.New[*SearchApp]("acme", "default")
+	require.NoError(t, err)
+	app.Indexed = "enabled phrase"
+	app.Hidden = "disabled phrase"
+	_, err = storage.Insert[*SearchApp](t.Context(), enabled, app)
+	require.NoError(t, err)
+	assert.Len(t, searchApps(t, enabled, "enabled"), 1)
+	assert.Empty(t, searchApps(t, enabled, "disabled"))
+	require.NoError(t, enabled.Close())
+
+	disabledRegistry := storage.NewRegistry()
+	storage.MustRegister[*SearchApp](disabledRegistry)
+	disabled, err := Open(path, disabledRegistry)
+	require.NoError(t, err)
+	second := disabled.(*rds)
+	assert.False(t, second.search["search_app"].fts)
+	require.NoError(t, second.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'search_app_fts'`).Scan(&tableCount))
+	assert.Zero(t, tableCount)
+	assert.Len(t, searchApps(t, disabled, "enabled"), 1)
+	assert.Empty(t, searchApps(t, disabled, "disabled"))
+	require.NoError(t, disabled.Close())
+}
+
+func TestSearchTagMigration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "migration.db")
 
 	legacyRegistry := storage.NewRegistry()
-	storage.MustRegister[*LegacySearchApp](legacyRegistry)
+	storage.MustRegister[*LegacySearchApp](legacyRegistry, storage.Options{Search: true})
 	legacy, err := Open(path, legacyRegistry)
 	require.NoError(t, err)
 	legacyApp, err := storage.New[*LegacySearchApp]("acme", "default")
@@ -529,7 +571,7 @@ func TestSearchByMigration(t *testing.T) {
 	require.NoError(t, legacy.Close())
 
 	registry := storage.NewRegistry()
-	storage.MustRegister[*SearchApp](registry)
+	storage.MustRegister[*SearchApp](registry, storage.Options{Search: true})
 	db, err := Open(path, registry)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
@@ -710,10 +752,8 @@ type App struct {
 type SearchApp struct {
 	storage.Meta `kind:"search_app" json:",inline"`
 	Indexed      string `json:"indexed"`
-	Hidden       string `json:"hidden"`
+	Hidden       string `json:"hidden" search:"-"`
 }
-
-func (*SearchApp) SearchBy() []string { return []string{"indexed"} }
 
 type LegacySearchApp struct {
 	storage.Meta `kind:"search_app" json:",inline"`

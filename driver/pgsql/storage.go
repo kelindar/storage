@@ -265,7 +265,7 @@ func (s *rds) matchWhere(kind storage.Kind, match string, defaultSort bool, wher
 	if match == "" {
 		return ""
 	}
-	if clause, likeArgs := matchLikeClause(searchExpression("data", s.search[kind]), match); clause != "" {
+	if clause, likeArgs := matchLikeClause(searchExpression("data", s.search[kind].paths), match); clause != "" {
 		*where = append(*where, clause)
 		*args = append(*args, likeArgs...)
 	}

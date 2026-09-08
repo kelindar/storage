@@ -119,46 +119,27 @@ func indexOf(r Record) string {
 }
 
 type searchConfig struct {
-	paths    []string
-	selected bool
-}
-
-func searchConfigOf(typ storage.Type) searchConfig {
-	instance := reflect.New(typ.Type).Interface()
-	searcher, ok := instance.(storage.SearchIndexer)
-	if !ok {
-		return searchConfig{}
-	}
-
-	config := searchConfig{selected: true}
-	for _, path := range searcher.SearchBy() {
-		if path != "" {
-			config.paths = append(config.paths, path)
-		}
-	}
-	return config
+	paths []string
+	fts   bool
 }
 
 func searchConfigs(registry storage.Registry) map[storage.Kind]searchConfig {
 	configs := make(map[storage.Kind]searchConfig)
 	for typ := range registry.Types() {
-		configs[typ.Kind] = searchConfigOf(typ)
+		configs[typ.Kind] = searchConfig{paths: typ.SearchPaths, fts: typ.Search}
 	}
 	return configs
 }
 
-func searchExpression(column string, config searchConfig) string {
-	if !config.selected {
+func searchExpression(column string, paths []string) string {
+	if len(paths) == 0 {
 		return column
 	}
-	if len(config.paths) == 0 {
-		return "''"
-	}
 
-	parts := make([]string, len(config.paths))
-	for i, path := range config.paths {
+	args := make([]string, len(paths))
+	for i, path := range paths {
 		path = strings.ReplaceAll(path, `'`, `''`)
-		parts[i] = "COALESCE(json_extract(" + column + ", '$." + path + "'), '')"
+		args[i] = "'$." + path + "'"
 	}
-	return "(" + strings.Join(parts, " || ' ' || ") + ")"
+	return "json_remove(" + column + ", " + strings.Join(args, ", ") + ")"
 }
