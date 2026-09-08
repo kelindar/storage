@@ -10,7 +10,7 @@ import (
 	"github.com/rs/xid"
 )
 
-func autoMigrate(db *sql.DB, registry storage.Registry) error {
+func autoMigrate(db *sql.DB, registry storage.Registry, configs map[storage.Kind]searchConfig) error {
 	if err := createLinksTable(db); err != nil {
 		return err
 	}
@@ -23,19 +23,41 @@ func autoMigrate(db *sql.DB, registry storage.Registry) error {
 	if err := createLocksTable(db); err != nil {
 		return err
 	}
+	if err := createSearchConfigTable(db); err != nil {
+		return err
+	}
 	for t := range registry.Types() {
 		label := t.Kind.String()
 		table := quoteIdent(label)
+		config := configs[t.Kind]
 		if err := errors.Join(
 			createTable(db, table, label),
 			createExpirationIndex(db, table, label),
-			createSearchIndex(db, table, label),
+			searchIndex(db, table, label, config),
 			repairEmptyIDs(db, table),
 		); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func searchIndex(db *sql.DB, table, label string, config searchConfig) error {
+	if config.fts {
+		return createSearchIndex(db, table, label, config.paths)
+	}
+	return dropSearchIndex(db, label)
+}
+
+func dropSearchIndex(db *sql.DB, label string) error {
+	return errors.Join(
+		execf(db, `DROP TRIGGER IF EXISTS %s`, quoteIdent(label+"_fts_before_update")),
+		execf(db, `DROP TRIGGER IF EXISTS %s`, quoteIdent(label+"_fts_before_delete")),
+		execf(db, `DROP TRIGGER IF EXISTS %s`, quoteIdent(label+"_after_update")),
+		execf(db, `DROP TRIGGER IF EXISTS %s`, quoteIdent(label+"_after_insert")),
+		execf(db, `DROP TABLE IF EXISTS %s`, quoteIdent(label+"_fts")),
+		execf(db, `DELETE FROM search_index_configs WHERE table_name = '%s'`, strings.ReplaceAll(label, `'`, `''`)),
+	)
 }
 
 func createLinksTable(db *sql.DB) error {
@@ -105,7 +127,14 @@ func createTable(db *sql.DB, table, label string) error {
 	case !exists:
 		_, err = db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0`)
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func createSearchConfigTable(db *sql.DB) error {
+	return execf(db, `CREATE TABLE IF NOT EXISTS search_index_configs (table_name TEXT PRIMARY KEY NOT NULL, expression TEXT NOT NULL)`)
 }
 
 func columnExists(db *sql.DB, table, column string) (bool, error) {
@@ -128,7 +157,7 @@ func fts5Enabled(db *sql.DB) bool {
 	return true
 }
 
-func createSearchIndex(db *sql.DB, table, label string) error {
+func createSearchIndex(db *sql.DB, table, label string, paths []string) error {
 	if err := execf(db, `CREATE VIRTUAL TABLE IF NOT EXISTS %s USING fts5(id, data)`,
 		quoteIdent(label+"_fts")); err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "fts5") {
@@ -137,18 +166,55 @@ func createSearchIndex(db *sql.DB, table, label string) error {
 		return err
 	}
 
-	return errors.Join(
-		execf(db, `CREATE TRIGGER IF NOT EXISTS %s BEFORE UPDATE ON %s BEGIN DELETE FROM %s WHERE rowid = old.rowid; END`,
+	fts := quoteIdent(label + "_fts")
+	if err := errors.Join(
+		execf(db, `DROP TRIGGER IF EXISTS %s`, quoteIdent(label+"_fts_before_update")),
+		execf(db, `DROP TRIGGER IF EXISTS %s`, quoteIdent(label+"_fts_before_delete")),
+		execf(db, `DROP TRIGGER IF EXISTS %s`, quoteIdent(label+"_after_update")),
+		execf(db, `DROP TRIGGER IF EXISTS %s`, quoteIdent(label+"_after_insert")),
+		execf(db, `CREATE TRIGGER %s BEFORE UPDATE ON %s BEGIN DELETE FROM %s WHERE rowid = old.rowid; END`,
 			quoteIdent(label+"_fts_before_update"), table, quoteIdent(label+"_fts")),
-		execf(db, `CREATE TRIGGER IF NOT EXISTS %s BEFORE DELETE ON %s BEGIN DELETE FROM %s WHERE rowid = old.rowid; END`,
+		execf(db, `CREATE TRIGGER %s BEFORE DELETE ON %s BEGIN DELETE FROM %s WHERE rowid = old.rowid; END`,
 			quoteIdent(label+"_fts_before_delete"), table, quoteIdent(label+"_fts")),
-		execf(db, `CREATE TRIGGER IF NOT EXISTS %s AFTER UPDATE ON %s BEGIN INSERT INTO %s(rowid, id, data) VALUES (new.rowid, new.id, new.data); END`,
-			quoteIdent(label+"_after_update"), table, quoteIdent(label+"_fts")),
-		execf(db, `CREATE TRIGGER IF NOT EXISTS %s AFTER INSERT ON %s BEGIN INSERT INTO %s(rowid, id, data) VALUES (new.rowid, new.id, new.data); END`,
-			quoteIdent(label+"_after_insert"), table, quoteIdent(label+"_fts")),
-		execf(db, `INSERT INTO %s(rowid, id, data) SELECT rowid, id, data FROM %s WHERE rowid NOT IN (SELECT rowid FROM %s)`,
-			quoteIdent(label+"_fts"), table, quoteIdent(label+"_fts")),
-	)
+		execf(db, `CREATE TRIGGER %s AFTER UPDATE ON %s BEGIN INSERT INTO %s(rowid, id, data) VALUES (new.rowid, new.id, %s); END`,
+			quoteIdent(label+"_after_update"), table, fts, searchExpression("new.data", paths)),
+		execf(db, `CREATE TRIGGER %s AFTER INSERT ON %s BEGIN INSERT INTO %s(rowid, id, data) VALUES (new.rowid, new.id, %s); END`,
+			quoteIdent(label+"_after_insert"), table, fts, searchExpression("new.data", paths)),
+	); err != nil {
+		return err
+	}
+
+	expression := searchExpression("data", paths)
+	previous, err := searchIndexExpression(db, label)
+	if err != nil {
+		return err
+	}
+	if previous != expression {
+		if _, err := db.Exec(`DELETE FROM ` + fts); err != nil {
+			return err
+		}
+	}
+	if err := execf(db, `INSERT INTO %s(rowid, id, data) SELECT rowid, id, %s FROM %s WHERE rowid NOT IN (SELECT rowid FROM %s)`,
+		fts, expression, table, fts); err != nil {
+		return err
+	}
+	if previous != expression {
+		_, err = db.Exec(`INSERT INTO search_index_configs(table_name, expression) VALUES (?, ?) ON CONFLICT(table_name) DO UPDATE SET expression = excluded.expression`, label, expression)
+	}
+	return err
+}
+
+func searchIndexExpression(db *sql.DB, label string) (string, error) {
+	var expression string
+	err := db.QueryRow(`SELECT expression FROM search_index_configs WHERE table_name = ?`, label).Scan(&expression)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return "", nil
+	case err != nil:
+		return "", err
+	default:
+		return expression, nil
+	}
 }
 
 func repairEmptyIDs(db *sql.DB, table string) error {

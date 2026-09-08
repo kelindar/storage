@@ -186,22 +186,22 @@ func nameOf(field *reflect.StructField) string {
 	}
 
 	tag := field.Tag.Get("json")
-	if tag == "" {
-		return field.Name
-	}
-
 	// JSON name always comes first. If there's no options then split[0] is
 	// JSON name, if JSON name is not set, then split[0] is an empty string.
 	split := strings.SplitN(tag, ",", 2)
 	name := split[0]
 
-	// However it is possible that the field is skipped when
-	// (de-)serializing from/to JSON, in which case assume that there is no
-	// tag name to use
-	if name == "-" {
+	switch {
+	case tag == "":
+		return field.Name
+	case name == "-":
+		// However it is possible that the field is skipped when
+		// (de-)serializing from/to JSON, in which case assume that there is no
+		// tag name to use.
 		return ""
+	default:
+		return name
 	}
-	return name
 }
 
 // ---------------------------------- Validators API ----------------------------------

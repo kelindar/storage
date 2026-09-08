@@ -102,6 +102,9 @@ func createTable(db *database, table, label string) error {
 	case !exists:
 		_, err = db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN expires_at BIGINT NOT NULL DEFAULT 0`)
 	}
+	if err != nil {
+		return err
+	}
 	return err
 }
 

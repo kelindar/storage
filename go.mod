@@ -1,6 +1,6 @@
 module github.com/kelindar/storage
 
-go 1.25.0
+go 1.27.0
 
 retract [v0.1.0, v0.8.0] // occupied by the former chartmuseum/storage module
 retract v0.9.0 // retained a local-only driver requirement

@@ -119,6 +119,7 @@ The registry can enumerate types, resolve a kind, and look up fields through `Ty
 `storage.Options` holds application metadata for a resource type:
 
 - `Icon`, `Title`, `Plural`, and `Sort` describe how it is presented.
+- `Search` enables a materialized full-text index where the driver supports it; it is disabled by default.
 - `States` defines an optional lifecycle state machine.
 - `Actions` contains permission names.
 - `Workflows` contains application workflow names.
@@ -157,7 +158,7 @@ defer testDB.Close()
 
 `sqlite.Open` uses the cgo-free `ncruces/go-sqlite3` driver. `OpenEphemeral` opens an in-memory database and is handy in tests.
 
-When FTS5 is available, SQLite uses it for `Query.Match`. Otherwise, matching falls back to a case-insensitive substring search.
+Set `storage.Options{Search: true}` when registering a resource to enable SQLite's materialized FTS5 index. If FTS5 is unavailable or the option is disabled, matching falls back to a case-insensitive substring search.
 
 ## PostgreSQL
 
@@ -186,7 +187,7 @@ if err != nil {
 defer db.Close() // does not close sqlDB
 ```
 
-`pgsql.New` does not close the supplied `*sql.DB`. PostgreSQL `Query.Match` performs a case-insensitive substring search over the stored JSON; it does not provide SQLite-style FTS ranking.
+`pgsql.New` does not close the supplied `*sql.DB`. PostgreSQL `Query.Match` performs a case-insensitive substring search over the stored JSON; it does not provide SQLite-style FTS ranking, so the `Search` option has no effect there.
 
 The raw `Upload` method on either driver rejects blob content because a database backend does not include a file store. Wrap a driver with `storage.NewStore` when blobs are needed.
 
@@ -313,7 +314,7 @@ The fields cover the common cases:
 - `States` filters lifecycle states.
 - `Indexes` filters the value returned by an optional `Index() string` method.
 - `Filters` compare JSON paths.
-- `Match` performs full-text or substring matching, depending on the driver.
+- `Match` performs full-text or substring matching, depending on the driver. Fields tagged with `search:"-"` are excluded from the search content; resources without search tags use their serialized data.
 - `SortBy` accepts `+field` for ascending and `-field` for descending order.
 - `Offset` and `Limit` page the results.
 - `CreatedBefore`, `UpdatedBefore`, and `UpdatedAfter` apply time bounds.

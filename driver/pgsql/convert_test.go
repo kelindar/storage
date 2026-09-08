@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kelindar/storage"
+	"github.com/stretchr/testify/assert"
 )
 
 type convertRecord struct {
@@ -15,7 +16,9 @@ type convertRecord struct {
 }
 
 type indexedRecord struct {
-	convertRecord
+	storage.Meta `kind:"indexed_record" json:",inline"`
+	Name         string `json:"name"`
+	Secret       string `json:"secret" search:"-"`
 }
 
 func (indexedRecord) Index() string { return "indexed" }
@@ -59,6 +62,11 @@ func testConvertHelpers(t *testing.T, value *convertRecord) {
 	if got := indexOf(value); got != "" {
 		t.Fatalf("indexOf plain = %q", got)
 	}
+	registry := storage.NewRegistry()
+	searchType := storage.MustRegister[*indexedRecord](registry)
+	assert.Equal(t, []string{"secret"}, searchType.SearchPaths)
+	assert.Equal(t, "(data #- string_to_array('secret', '.'))::text", searchExpression("data", searchType.SearchPaths))
+	assert.Equal(t, "data::text", searchExpression("data", nil))
 }
 
 func testConvertRead(t *testing.T, registry storage.Registry) {

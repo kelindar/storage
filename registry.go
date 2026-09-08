@@ -24,10 +24,11 @@ type Registry interface {
 
 // Type represents a registration of a resource kind.
 type Type struct {
-	fields  map[string]reflect.StructField
-	Kind    Kind         // Kind of the resource
-	Type    reflect.Type // Type of the resource
-	Options              // Options of the resource
+	fields      map[string]reflect.StructField
+	Kind        Kind         // Kind of the resource
+	Type        reflect.Type // Type of the resource
+	SearchPaths []string     // JSON paths excluded from full-text search by search:"-".
+	Options                  // Options of the resource
 }
 
 // Field retrieves a field information by the specified path.
@@ -73,6 +74,7 @@ func (c *registry) Register(typ Type) error {
 
 	// Construct the fields map
 	typ.fields = fieldsOf(typ.Type)
+	typ.SearchPaths = searchFieldsOf(typ.Type)
 
 	//Register the resource kind and sort the data
 	c.data[typ.Kind] = typ

@@ -85,7 +85,7 @@ func metaOf(v Record) *storage.Meta {
 	return reflect.ValueOf(v).Elem().FieldByIndex(info.index).Addr().Interface().(*storage.Meta)
 }
 
-// ---------------------------------- Text ----------------------------------
+// ---------------------------------- Search ----------------------------------
 
 var (
 	matchFirst = regexp.MustCompile("(.)([A-Z][a-z]+)")
@@ -116,4 +116,30 @@ func indexOf(r Record) string {
 	}
 
 	return ""
+}
+
+type searchConfig struct {
+	paths []string
+	fts   bool
+}
+
+func searchConfigs(registry storage.Registry) map[storage.Kind]searchConfig {
+	configs := make(map[storage.Kind]searchConfig)
+	for typ := range registry.Types() {
+		configs[typ.Kind] = searchConfig{paths: typ.SearchPaths, fts: typ.Search}
+	}
+	return configs
+}
+
+func searchExpression(column string, paths []string) string {
+	if len(paths) == 0 {
+		return column
+	}
+
+	args := make([]string, len(paths))
+	for i, path := range paths {
+		path = strings.ReplaceAll(path, `'`, `''`)
+		args[i] = "'$." + path + "'"
+	}
+	return "json_remove(" + column + ", " + strings.Join(args, ", ") + ")"
 }

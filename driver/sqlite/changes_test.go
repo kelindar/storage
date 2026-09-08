@@ -290,7 +290,7 @@ func TestChanges(t *testing.T) {
 	t.Run("indexes pruning and retains the cutoff", func(t *testing.T) {
 		testStorage(func(db storage.Storage, _ storage.Registry) {
 			s := db.(*rds)
-			require.NoError(t, autoMigrate(s.db, s.registry))
+			require.NoError(t, autoMigrate(s.db, s.registry, s.search))
 
 			var indexCount int
 			require.NoError(t, s.db.QueryRow(

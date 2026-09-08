@@ -162,6 +162,7 @@ type Options struct {
 	Title     string        `json:"title,omitempty"`     // Title of the document (e.g. Person)
 	Plural    string        `json:"plural,omitempty"`    // Plural name of the document (e.g. People)
 	Sort      string        `json:"sort,omitempty"`      // Sort field
+	Search    bool          `json:"search,omitempty"`    // Enable a materialized full-text index where supported
 	States    state.Machine `json:"-"`                   // Optional lifecycle state machine
 	Actions   []string      `json:"actions,omitempty"`   // Allowed permission actions for this kind
 	Workflows []string      `json:"workflows,omitempty"` // Built-in workflows to run after saves

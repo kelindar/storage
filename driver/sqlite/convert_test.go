@@ -3,6 +3,7 @@ package sqlite
 import (
 	"testing"
 
+	"github.com/kelindar/storage"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -44,4 +45,29 @@ func TestFilterJSON(t *testing.T) {
 		assert.Equal(t, expected.clause, clause)
 		assert.Equal(t, expected.args, args)
 	}
+}
+
+func TestSearchTag(t *testing.T) {
+	registry := storage.NewRegistry()
+	textType := storage.MustRegister[*searchRecord](registry)
+	plainType := storage.MustRegister[*plainRecord](registry)
+
+	assert.Equal(t, []string{"link", "nested.secret"}, textType.SearchPaths)
+	assert.Equal(t, "json_remove(data, '$.link', '$.nested.secret')", searchExpression("data", textType.SearchPaths))
+	assert.Empty(t, plainType.SearchPaths)
+	assert.Equal(t, "data", searchExpression("data", plainType.SearchPaths))
+}
+
+type searchRecord struct {
+	storage.Meta `kind:"text_record" json:",inline"`
+	Title        string      `json:"title"`
+	Link         storage.URN `json:"link" search:"-"`
+	Nested       struct {
+		Public string `json:"public"`
+		Secret string `json:"secret" search:"-"`
+	} `json:"nested"`
+}
+
+type plainRecord struct {
+	storage.Meta `kind:"plain_record" json:",inline"`
 }
