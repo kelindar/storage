@@ -38,6 +38,7 @@ const (
 type Blob struct {
 	Meta        `kind:"blob" json:",inline"`
 	ContentType string      `json:"contentType" form:"ro"`
+	Private     bool        `json:"private,omitempty" form:"ro"`
 	Size        int64       `json:"size" form:"ro"`
 	ObjectKey   string      `json:"-" store:"objectKey" form:"-"`
 	SHA256      string      `json:"-" store:"sha256" form:"-"`
@@ -99,8 +100,22 @@ func (m *Memory) Delete(ctx context.Context, name string) error {
 // MaxSize is the largest uncompressed Blob payload.
 const MaxSize = 64 << 20
 
-// Upload stores immutable content.
-func (s *Store) Upload(ctx context.Context, scope URN, contentType string, data []byte) (*Blob, error) {
+// UploadOption configures Blob metadata before its first insert.
+type UploadOption func(*Blob)
+
+// WithMeta sets initial state and expiry. Upload assigns identity and audit fields.
+func WithMeta(meta Meta) UploadOption {
+	return func(blob *Blob) { blob.State, blob.ExpiresAt = meta.State, meta.ExpiresAt }
+}
+
+// WithPrivate marks an upload private. Privacy is immutable after insertion.
+func WithPrivate() UploadOption {
+	return func(blob *Blob) { blob.Private = true }
+}
+
+// Upload stores immutable content with a fresh identity. Options are applied
+// before writing bytes or inserting metadata; omitted options preserve defaults.
+func (s *Store) Upload(ctx context.Context, scope URN, contentType string, data []byte, options ...UploadOption) (*Blob, error) {
 	switch {
 	case s == nil || s.Storage == nil || s.files == nil:
 		return nil, errors.New("blob: store is not configured")
@@ -111,9 +126,21 @@ func (s *Store) Upload(ctx context.Context, scope URN, contentType string, data 
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
-	blob, err := New[*Blob](scope.Tenant, scope.Namespace)
+	blob := &Blob{ContentType: contentType}
+	for _, option := range options {
+		if option != nil {
+			option(blob)
+		}
+	}
+	// Identity and audit fields are owned by the store, even when an option
+	// receives metadata copied from an existing Blob.
+	urn, err := NewURN(scope.Tenant, scope.Namespace, KindBlob)
 	if err != nil {
 		return nil, err
+	}
+	blob.Meta = Meta{
+		ID: urn.ID, Kind: KindBlob, Tenant: urn.Tenant, Namespace: urn.Namespace,
+		State: blob.State, ExpiresAt: blob.ExpiresAt,
 	}
 	stored, compression, err := encode(contentType, data)
 	if err != nil {
