@@ -100,44 +100,47 @@ func (m *Memory) Delete(ctx context.Context, name string) error {
 // MaxSize is the largest uncompressed Blob payload.
 const MaxSize = 64 << 20
 
-// Upload stores immutable content.
-func (s *Store) Upload(ctx context.Context, scope URN, contentType string, data []byte) (*Blob, error) {
-	return s.UploadBlob(ctx, &Blob{
-		Meta:        Meta{Tenant: scope.Tenant, Namespace: scope.Namespace},
-		ContentType: contentType,
-	}, data)
+// UploadOption configures Blob metadata before its first insert.
+type UploadOption func(*Blob)
+
+// WithMeta sets initial state and expiry. Upload assigns identity and audit fields.
+func WithMeta(meta Meta) UploadOption {
+	return func(blob *Blob) { blob.State, blob.ExpiresAt = meta.State, meta.ExpiresAt }
 }
 
-// UploadBlob stores immutable content using the Blob's tenant, namespace,
-// content type, privacy, and expiry. It assigns a fresh ID and does not modify blob.
-func (s *Store) UploadBlob(ctx context.Context, blob *Blob, data []byte) (*Blob, error) {
+// WithPrivate marks an upload private. Privacy is immutable after insertion.
+func WithPrivate() UploadOption {
+	return func(blob *Blob) { blob.Private = true }
+}
+
+// Upload stores immutable content with a fresh identity. Options are applied
+// before writing bytes or inserting metadata; omitted options preserve defaults.
+func (s *Store) Upload(ctx context.Context, scope URN, contentType string, data []byte, options ...UploadOption) (*Blob, error) {
 	switch {
 	case s == nil || s.Storage == nil || s.files == nil:
 		return nil, errors.New("blob: store is not configured")
-	case blob == nil:
-		return nil, fmt.Errorf("%w: blob is required", ErrInvalid)
-	case blob.Kind != "" && blob.Kind != KindBlob:
-		return nil, fmt.Errorf("%w: kind must be %q", ErrInvalid, KindBlob)
 	case len(data) > MaxSize:
 		return nil, fmt.Errorf("%w: content exceeds %d bytes", ErrInvalid, MaxSize)
 	}
-	contentType, err := normalizeContentType(blob.ContentType, data)
+	contentType, err := normalizeContentType(contentType, data)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
-	// Uploads always receive a fresh identity; reusing a supplied ID could
-	// overwrite an existing payload before its metadata insert conflicts.
-	urn, err := NewURN(blob.Tenant, blob.Namespace, KindBlob)
+	blob := &Blob{ContentType: contentType}
+	for _, option := range options {
+		if option != nil {
+			option(blob)
+		}
+	}
+	// Identity and audit fields are owned by the store, even when an option
+	// receives metadata copied from an existing Blob.
+	urn, err := NewURN(scope.Tenant, scope.Namespace, KindBlob)
 	if err != nil {
 		return nil, err
 	}
-	blob = &Blob{
-		Meta: Meta{
-			ID: urn.ID, Kind: KindBlob, Tenant: urn.Tenant, Namespace: urn.Namespace,
-			ExpiresAt: blob.ExpiresAt,
-		},
-		ContentType: contentType,
-		Private:     blob.Private,
+	blob.Meta = Meta{
+		ID: urn.ID, Kind: KindBlob, Tenant: urn.Tenant, Namespace: urn.Namespace,
+		State: blob.State, ExpiresAt: blob.ExpiresAt,
 	}
 	stored, compression, err := encode(contentType, data)
 	if err != nil {

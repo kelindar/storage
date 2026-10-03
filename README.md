@@ -583,6 +583,8 @@ _ = data
 
 `storage.Memory` is intended for tests. A custom `Files` implementation must also implement `fs.FS`, `Write(context.Context, string, []byte)`, and `Delete(context.Context, string)`.
 
+Pass `storage.WithPrivate()` and `storage.WithMeta(storage.Meta{ExpiresAt: expiresAt})` to `Upload` to persist privacy and staging expiry before insertion. Omitted options retain the existing defaults. Upload always assigns a fresh identity and storage audit fields; `WithMeta` accepts only initial state and expiry.
+
 Blob content is immutable. On upload, storage limits the uncompressed payload to `storage.MaxSize` (64 MiB), detects and validates the MIME type, records both sizes and a SHA-256 digest, and compresses text, JSON, XML, YAML, TOML, and selected vendor formats with zstd. Every read checks the size, decompression, and digest.
 
 The persisted `Blob.Compression` is either `CompressionRaw` or `CompressionZstd`. Updating a blob changes its metadata only; it does not replace the bytes.

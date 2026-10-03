@@ -134,7 +134,7 @@ func (s *rds) expiredPage(ctx context.Context, kind storage.Kind, now, afterAt i
 }
 
 // Upload rejects Blob writes; wrap with storage.NewStore to enable uploads.
-func (s *rds) Upload(context.Context, storage.URN, string, []byte) (*storage.Blob, error) {
+func (s *rds) Upload(context.Context, storage.URN, string, []byte, ...storage.UploadOption) (*storage.Blob, error) {
 	return nil, errors.New("blob: store is not configured")
 }
 

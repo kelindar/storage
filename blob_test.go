@@ -146,11 +146,8 @@ func TestBlobPrivacy(t *testing.T) {
 	store := storage.NewStore(backend, &storage.Memory{})
 	expiresAt := time.Now().Add(time.Hour).UnixNano()
 
-	blob, err := store.UploadBlob(t.Context(), &storage.Blob{
-		Meta:        storage.Meta{Tenant: "acme", Namespace: "default", ExpiresAt: expiresAt},
-		ContentType: "text/plain",
-		Private:     true,
-	}, []byte("private"))
+	blob, err := store.Upload(t.Context(), storage.URN{Tenant: "acme", Namespace: "default"}, "text/plain", []byte("private"),
+		storage.WithPrivate(), storage.WithMeta(storage.Meta{ExpiresAt: expiresAt}))
 	require.NoError(t, err)
 
 	changed := *blob
@@ -165,7 +162,7 @@ func TestBlobPrivacy(t *testing.T) {
 
 	t.Run("fresh identity preserves original bytes", func(t *testing.T) {
 		copy := *blob
-		second, err := store.UploadBlob(t.Context(), &copy, []byte("second"))
+		second, err := store.Upload(t.Context(), copy.URN(), copy.ContentType, []byte("second"), storage.WithPrivate(), storage.WithMeta(copy.Meta))
 		require.NoError(t, err)
 		assert.NotEqual(t, blob.ID, second.ID)
 		original, err := blob.Read(t.Context())
@@ -261,11 +258,8 @@ func TestBlobValidation(t *testing.T) {
 		wrapped := &insertErrorStorage{Storage: backend, err: assert.AnError}
 		store := storage.NewStore(wrapped, files)
 		expiresAt := time.Now().Add(time.Hour).UnixNano()
-		_, err := store.UploadBlob(t.Context(), &storage.Blob{
-			Meta:        storage.Meta{Tenant: "acme", Namespace: "default", ExpiresAt: expiresAt},
-			ContentType: "text/plain",
-			Private:     true,
-		}, []byte("x"))
+		_, err := store.Upload(t.Context(), storage.URN{Tenant: "acme", Namespace: "default"}, "text/plain", []byte("x"),
+			storage.WithPrivate(), storage.WithMeta(storage.Meta{ExpiresAt: expiresAt}))
 		require.ErrorIs(t, err, assert.AnError)
 		inserted, ok := wrapped.inserted.(*storage.Blob)
 		require.True(t, ok)

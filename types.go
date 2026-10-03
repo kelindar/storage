@@ -69,7 +69,7 @@ type Storage interface {
 	Search(ctx context.Context, kind Kind, query Query) (iter.Seq[Object], error)
 	Count(ctx context.Context, kind Kind, query Query) (int, error)
 	Changes(ctx context.Context, consumer string, kind Kind, after time.Time, handle func(context.Context, []Change) error) error
-	Upload(ctx context.Context, scope URN, contentType string, data []byte) (*Blob, error)
+	Upload(ctx context.Context, scope URN, contentType string, data []byte, options ...UploadOption) (*Blob, error)
 	Next(ctx context.Context, name string) (uint32, error)
 }
 
