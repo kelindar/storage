@@ -109,7 +109,7 @@ func (s *Store) Upload(ctx context.Context, scope URN, contentType string, data 
 }
 
 // UploadBlob stores immutable content using the Blob's tenant, namespace,
-// content type, privacy, and expiry. It does not modify blob.
+// content type, privacy, and expiry. It assigns a fresh ID and does not modify blob.
 func (s *Store) UploadBlob(ctx context.Context, blob *Blob, data []byte) (*Blob, error) {
 	switch {
 	case s == nil || s.Storage == nil || s.files == nil:
@@ -125,12 +125,9 @@ func (s *Store) UploadBlob(ctx context.Context, blob *Blob, data []byte) (*Blob,
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
-	var urn URN
-	if blob.ID == "" {
-		urn, err = NewURN(blob.Tenant, blob.Namespace, KindBlob)
-	} else {
-		urn, err = MakeURN(blob.Tenant, blob.Namespace, KindBlob, blob.ID)
-	}
+	// Uploads always receive a fresh identity; reusing a supplied ID could
+	// overwrite an existing payload before its metadata insert conflicts.
+	urn, err := NewURN(blob.Tenant, blob.Namespace, KindBlob)
 	if err != nil {
 		return nil, err
 	}

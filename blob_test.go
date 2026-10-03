@@ -162,6 +162,17 @@ func TestBlobPrivacy(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, fetched.Private)
 	assert.Equal(t, expiresAt, fetched.ExpiresAt)
+
+	t.Run("fresh identity preserves original bytes", func(t *testing.T) {
+		copy := *blob
+		second, err := store.UploadBlob(t.Context(), &copy, []byte("second"))
+		require.NoError(t, err)
+		assert.NotEqual(t, blob.ID, second.ID)
+		original, err := blob.Read(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, []byte("private"), original)
+		assert.Equal(t, blob.ID, copy.ID)
+	})
 }
 
 func TestBlobReferences(t *testing.T) {
