@@ -79,6 +79,15 @@ func (s *Store) Insert(ctx context.Context, object Object) (Object, error) {
 
 // Update stores a resource and binds its file backend when needed.
 func (s *Store) Update(ctx context.Context, object Object) (Object, error) {
+	if blob, ok := object.(*Blob); ok && blob != nil {
+		current, err := s.Storage.Fetch(ctx, blob.URN())
+		if err != nil {
+			return nil, err
+		}
+		if currentBlob, ok := current.(*Blob); ok && currentBlob.Private != blob.Private {
+			return nil, fmt.Errorf("%w: blob privacy is immutable", ErrInvalid)
+		}
+	}
 	stored, err := s.Storage.Update(ctx, object)
 	if err != nil {
 		return nil, err

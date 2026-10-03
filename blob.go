@@ -38,6 +38,7 @@ const (
 type Blob struct {
 	Meta        `kind:"blob" json:",inline"`
 	ContentType string      `json:"contentType" form:"ro"`
+	Private     bool        `json:"private,omitempty" form:"ro"`
 	Size        int64       `json:"size" form:"ro"`
 	ObjectKey   string      `json:"-" store:"objectKey" form:"-"`
 	SHA256      string      `json:"-" store:"sha256" form:"-"`
@@ -101,19 +102,45 @@ const MaxSize = 64 << 20
 
 // Upload stores immutable content.
 func (s *Store) Upload(ctx context.Context, scope URN, contentType string, data []byte) (*Blob, error) {
+	return s.UploadBlob(ctx, &Blob{
+		Meta:        Meta{Tenant: scope.Tenant, Namespace: scope.Namespace},
+		ContentType: contentType,
+	}, data)
+}
+
+// UploadBlob stores immutable content using the Blob's tenant, namespace,
+// content type, privacy, and expiry. It does not modify blob.
+func (s *Store) UploadBlob(ctx context.Context, blob *Blob, data []byte) (*Blob, error) {
 	switch {
 	case s == nil || s.Storage == nil || s.files == nil:
 		return nil, errors.New("blob: store is not configured")
+	case blob == nil:
+		return nil, fmt.Errorf("%w: blob is required", ErrInvalid)
+	case blob.Kind != "" && blob.Kind != KindBlob:
+		return nil, fmt.Errorf("%w: kind must be %q", ErrInvalid, KindBlob)
 	case len(data) > MaxSize:
 		return nil, fmt.Errorf("%w: content exceeds %d bytes", ErrInvalid, MaxSize)
 	}
-	contentType, err := normalizeContentType(contentType, data)
+	contentType, err := normalizeContentType(blob.ContentType, data)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
-	blob, err := New[*Blob](scope.Tenant, scope.Namespace)
+	var urn URN
+	if blob.ID == "" {
+		urn, err = NewURN(blob.Tenant, blob.Namespace, KindBlob)
+	} else {
+		urn, err = MakeURN(blob.Tenant, blob.Namespace, KindBlob, blob.ID)
+	}
 	if err != nil {
 		return nil, err
+	}
+	blob = &Blob{
+		Meta: Meta{
+			ID: urn.ID, Kind: KindBlob, Tenant: urn.Tenant, Namespace: urn.Namespace,
+			ExpiresAt: blob.ExpiresAt,
+		},
+		ContentType: contentType,
+		Private:     blob.Private,
 	}
 	stored, compression, err := encode(contentType, data)
 	if err != nil {

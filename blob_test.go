@@ -57,7 +57,7 @@ func TestBlobJSON(t *testing.T) {
 		Meta: storage.Meta{
 			ID: "blob-id", Kind: storage.KindBlob, Tenant: "acme", Namespace: "default",
 		},
-		ContentType: "text/plain", ObjectKey: "blobs/acme/default/blob-id",
+		ContentType: "text/plain", Private: true, ObjectKey: "blobs/acme/default/blob-id",
 		SHA256: "checksum", StoredSize: 7, Compression: storage.CompressionZstd,
 	}
 	public, err := json.Marshal(value)
@@ -73,6 +73,7 @@ func TestBlobJSON(t *testing.T) {
 	restored := decoded.(*storage.Blob)
 	require.Equal(t, value.ObjectKey, restored.ObjectKey)
 	require.Equal(t, value.Compression, restored.Compression)
+	assert.True(t, restored.Private)
 	assert.Equal(t, value.ID, value.Title())
 	assert.Equal(t, value.ContentType, value.Subtitle())
 }
@@ -82,12 +83,16 @@ func TestStoreBlobLifecycle(t *testing.T) {
 	backend := sqlite.OpenEphemeral(newRegistry())
 	t.Cleanup(func() { require.NoError(t, backend.Close()) })
 	store := storage.NewStore(backend, files)
-	created, err := store.Upload(t.Context(), storage.URN{Tenant: "acme", Namespace: "default"}, "text/plain", []byte("hello blob"))
+	ctx := storage.WithActor(t.Context(), "uploader")
+	created, err := store.Upload(ctx, storage.URN{Tenant: "acme", Namespace: "default"}, "text/plain", []byte("hello blob"))
 	require.NoError(t, err)
+	assert.Equal(t, "uploader", created.CreatedBy)
+	assert.False(t, created.Private)
 	require.Equal(t, storage.CompressionZstd, created.Compression)
 	require.Equal(t, state.Active, created.State)
 	fetched, err := storage.Fetch[*storage.Blob](t.Context(), store, created.URN())
 	require.NoError(t, err)
+	assert.Equal(t, "uploader", fetched.CreatedBy)
 	data, err := fetched.Read(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, []byte("hello blob"), data)
@@ -133,6 +138,30 @@ func TestStoreBlobLifecycle(t *testing.T) {
 	require.NoError(t, store.Recover(t.Context()))
 	_, err = storage.Fetch[*storage.Blob](t.Context(), store, created.URN())
 	require.ErrorIs(t, err, storage.ErrNotFound)
+}
+
+func TestBlobPrivacy(t *testing.T) {
+	backend := sqlite.OpenEphemeral(newRegistry())
+	t.Cleanup(func() { require.NoError(t, backend.Close()) })
+	store := storage.NewStore(backend, &storage.Memory{})
+	expiresAt := time.Now().Add(time.Hour).UnixNano()
+
+	blob, err := store.UploadBlob(t.Context(), &storage.Blob{
+		Meta:        storage.Meta{Tenant: "acme", Namespace: "default", ExpiresAt: expiresAt},
+		ContentType: "text/plain",
+		Private:     true,
+	}, []byte("private"))
+	require.NoError(t, err)
+
+	changed := *blob
+	changed.Private = false
+	_, err = store.Update(t.Context(), &changed)
+	require.ErrorIs(t, err, storage.ErrInvalid)
+
+	fetched, err := storage.Fetch[*storage.Blob](t.Context(), store, blob.URN())
+	require.NoError(t, err)
+	assert.True(t, fetched.Private)
+	assert.Equal(t, expiresAt, fetched.ExpiresAt)
 }
 
 func TestBlobReferences(t *testing.T) {
@@ -220,10 +249,19 @@ func TestBlobValidation(t *testing.T) {
 		files := &storage.Memory{}
 		wrapped := &insertErrorStorage{Storage: backend, err: assert.AnError}
 		store := storage.NewStore(wrapped, files)
-		_, err := store.Upload(t.Context(), storage.URN{Tenant: "acme", Namespace: "default"}, "text/plain", []byte("x"))
+		expiresAt := time.Now().Add(time.Hour).UnixNano()
+		_, err := store.UploadBlob(t.Context(), &storage.Blob{
+			Meta:        storage.Meta{Tenant: "acme", Namespace: "default", ExpiresAt: expiresAt},
+			ContentType: "text/plain",
+			Private:     true,
+		}, []byte("x"))
 		require.ErrorIs(t, err, assert.AnError)
-		_, err = fs.ReadFile(files, "blobs/acme/default/missing")
-		assert.Error(t, err)
+		inserted, ok := wrapped.inserted.(*storage.Blob)
+		require.True(t, ok)
+		assert.True(t, inserted.Private)
+		assert.Equal(t, expiresAt, inserted.ExpiresAt)
+		_, err = fs.ReadFile(files, inserted.ObjectKey)
+		require.ErrorIs(t, err, fs.ErrNotExist)
 	})
 }
 
@@ -404,10 +442,12 @@ type failingFiles struct {
 
 type insertErrorStorage struct {
 	storage.Storage
-	err error
+	err      error
+	inserted storage.Object
 }
 
-func (s *insertErrorStorage) Insert(context.Context, storage.Object) (storage.Object, error) {
+func (s *insertErrorStorage) Insert(_ context.Context, object storage.Object) (storage.Object, error) {
+	s.inserted = object
 	return nil, s.err
 }
 
